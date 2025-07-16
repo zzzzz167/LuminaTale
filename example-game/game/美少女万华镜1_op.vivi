@@ -42,7 +42,7 @@ fuka:不会不会……我爱好登山.与像东京这样乱七八糟的都市�
 $ choice = 0
 choice 选择一个选项:      --此处只作为演示 与剧情无任何关系(注释语法就是这样 单行注释从--开头到结尾的全部内容都会被忽略)
 第一个选项:jump scene1
-第二个选项:jump scene2 return
+第二个选项:jump scene2
 enco
 
 jump cou
