@@ -1,8 +1,13 @@
+//! Lexical analyser for a simple visual-novel scripting language.
+//!
+//! The lexer recognises keywords (`scene`, `show`, `choice`, …),
+//! string/number literals, Lua blocks and a handful of punctuation
+//! tokens.  It also tracks line/column information.
 use std::iter::Peekable;
 use std::str::Chars;
 use unicode_xid::UnicodeXID;
 
-//Tentative Token
+/// All tokens that can be produced by the lexer.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Tok {
     Character,
@@ -24,10 +29,15 @@ pub enum Tok {
 enum Mode { Normal, Choice}
 
 pub struct Lexer<'a> {
+    /// Original source text (kept for debugging).
     src: &'a str,
+    /// Character iterator with one-character look-ahead.
     chars: Peekable<Chars<'a>>,
+    /// Current line number (1-based).
     line: usize,
+    /// Current column number (0-based).
     col: usize,
+    /// Are we lexing inside a choice block?
     mode: Mode,
 }
 
@@ -42,6 +52,7 @@ impl<'a> Lexer<'a> {
         }
     }
     
+    /// Advance the cursor by one character, updating line/column bookkeeping.
     fn bump(&mut self) -> Option<char> {
         let c = self.chars.next();
         if c == Some('\n') {
@@ -53,15 +64,19 @@ impl<'a> Lexer<'a> {
         c
     }
     
+    /// Peek at the next character **without** advancing the cursor.
     fn peek(&mut self) -> Option<char> {
         self.chars.peek().copied()
     }
 
+    /// Peek `n` characters ahead (0 == current peek).
     fn peek_nth(&mut self, n: usize) -> Option<char> {
         let mut iter = self.chars.clone();
         iter.nth(n)
     }
 
+    /// Check whether the next characters *exactly* match `kw` and are followed
+    /// by a non-identifier character.
     fn peek_keyword(&mut self, kw: &str) -> bool {
         let mut it = self.chars.clone();
         for ch in kw.chars() {
@@ -72,12 +87,14 @@ impl<'a> Lexer<'a> {
         matches!(it.next(), None | Some(' ') | Some('\t') | Some('\n'))
     }
 
+    /// Consume `kw` without any checks; caller must first call `peek_keyword`.
     fn consume_keyword(&mut self, kw: &str) {
         for _ in kw.chars() {
             self.bump();
         }
     }
-    
+
+    /// Discard spaces and tabs, but **stop at newline**.
     fn skip_space_no_nl(&mut self) {
         while let Some(c) = self.peek() {
             if c == ' ' || c == '\t' || c == '\r' {
@@ -88,6 +105,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Convert an escape sequence into the corresponding character.
     fn consume_escape(&mut self) -> char {
         match self.bump() {
             Some('n') => '\n',
@@ -100,7 +118,9 @@ impl<'a> Lexer<'a> {
             None => '\\',
         }
     }
-    
+
+    /// Parse a quoted string until `delim` is reached.
+    /// Handles `\"`, `\'`, and other back-slash escapes.
     fn string_literal(&mut self, delim: char) -> String {
         let mut out = String::new();
         while let Some(c) = self.bump() {
@@ -113,6 +133,7 @@ impl<'a> Lexer<'a> {
         out
     }
 
+    /// Parse a triple-quoted string `""" … """`.
     fn triple_quote(&mut self) -> String {
         let mut out = String::new();
         while let Some(c) = self.bump() {
@@ -129,6 +150,7 @@ impl<'a> Lexer<'a> {
         out
     }
     
+    /// Parse the remainder of a `:` line as a string.
     fn colon_line(&mut self) -> String {
         let mut out = String::new();
         self.bump();
@@ -142,6 +164,7 @@ impl<'a> Lexer<'a> {
         out
     }
 
+    /// Convert an identifier-like sequence into a keyword token or `Ident`.
     fn keyword_or_ident(&mut self, first: char) -> Tok {
         let mut s = String::from(first);
         while let Some(c) = self.peek() {
@@ -173,6 +196,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Slurp everything until the terminating `enlua` keyword.
     fn lua_block(&mut self) -> String {
         let mut out = String::new();
         while let Some(c) = self.bump() {
@@ -192,8 +216,8 @@ impl<'a> Lexer<'a> {
         }
         out
     }
-
-
+    
+    /// Parse a number literal or fall back to an identifier.
     fn number_or_ident(&mut self, first: char) -> Tok {
         let mut s = String::from(first);
         let mut allow_dot = true;
@@ -218,7 +242,8 @@ impl<'a> Lexer<'a> {
                 _ => break,
             }
         }
-
+        
+        // If we trail with a letter/underscore, treat the whole thing as ident.
         if let Some(nc) = self.chars.peek() {
             if nc.is_alphabetic() || *nc == '_' {
                 while let Some(c) = self.chars.peek() {
@@ -234,6 +259,7 @@ impl<'a> Lexer<'a> {
         Tok::Num(val)
     }
 
+    /// Run the lexer to completion and return the full token stream.
     pub fn run(&mut self) -> Vec<Tok> {
         let mut tokens = Vec::new();
         let mut last_was_newline = false;
@@ -267,6 +293,7 @@ impl<'a> Lexer<'a> {
         tokens
     }
 
+    /// Normal (top-level) lexing rules.
     fn normal(&mut self, tokens: &mut Vec<Tok>) {
         self.skip_space_no_nl();
         let c = match self.peek() {
@@ -346,8 +373,11 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Lexing rules when inside a choice block.
     fn choice(&mut self, tokens: &mut Vec<Tok>) {
         self.skip_space_no_nl();
+
+        // End of choice block?
         if self.peek_keyword("enco") {
             self.consume_keyword("enco");
             tokens.push(Tok::EnChoice);
@@ -355,6 +385,7 @@ impl<'a> Lexer<'a> {
             return;
         }
 
+        // Collect choice text until ':' or newline
         let mut text = String::new();
         while let Some(c) = self.peek() {
             if c == ':' { break; }
@@ -368,6 +399,7 @@ impl<'a> Lexer<'a> {
         }
         tokens.push(Tok::Str(text.trim_end().to_owned()));
 
+        // Expect ':' after the text
         if self.peek() == Some(':') {
             self.bump();
             tokens.push(Tok::Colon);
@@ -376,6 +408,7 @@ impl<'a> Lexer<'a> {
             return;
         }
 
+        // Continue lexing with normal rules for the body of the choice
         self.skip_space_no_nl();
         while let Some(c) = self.peek() {
             if c == '\n' {
