@@ -1,5 +1,6 @@
 use viviscript_core::lexer::{Lexer, Tok};
 
+//FIXME:更新单元测试支持最新的词法分析器
 #[test]
 fn basics() {
     let src = r#"
