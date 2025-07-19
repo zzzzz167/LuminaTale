@@ -5,3 +5,4 @@ edition = "2024"
 
 [dependencies]
 unicode-xid = "0.2.6"
+regex = "1.11.1"

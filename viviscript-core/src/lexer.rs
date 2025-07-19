@@ -40,8 +40,38 @@ pub enum TokKind {
     Newline,
     Comment(String),
     ParamKey(String),
+    Reserved(String),
+    Flag(String),
     Eof,
 }
+
+#[macro_export] 
+macro_rules! define_content_access {
+    ($($var:ident($inner:ty)),* $(,)?) => {
+        impl TokKind {
+            pub fn as_str(&self) -> Option<&str> {
+                match self {
+                    $(TokKind::$var(s) => Some(s.as_str()),)*
+                    _ => None,
+                }
+            }
+            pub fn into_string(self) -> Option<String> {
+                match self {
+                    $(TokKind::$var(s) => Some(s),)*
+                    _ => None,
+                }
+            }
+        }
+    };
+}
+define_content_access!(
+    ParamKey(String),
+    Reserved(String),
+    Flag(String),
+    Str(String),
+    Ident(String),
+    LuaBlock(String),
+);
 
 /// Lexical mode the lexer is currently in.
 enum Mode { Normal, Choice}
@@ -194,6 +224,18 @@ impl<'a> Lexer<'a> {
         }
         out
     }
+    
+    fn dollar_line(&mut self) -> String {
+        let mut out = String::new();
+        self.skip_space_no_nl();
+        while let Some(c) = self.peek() {
+            if c == '\n' {
+                break;
+            }
+            out.push(self.bump().unwrap());
+        }
+        out
+    }
 
     /// Convert an identifier-like sequence into a keyword token or `Ident`.
     fn keyword_or_ident(&mut self, first: char) -> TokKind {
@@ -220,7 +262,9 @@ impl<'a> Lexer<'a> {
             "enco" => TokKind::EnChoice,
             "enlb" => TokKind::EnLabel,
             "enlua" => TokKind::EnLua,
-            "with" | "at" | "loop" | "volume" | "fade_in" | "fade_out" | "image_tag" | "name"=> {
+            "with" | "at" | "as"=> TokKind::Reserved(s),
+            "loop" | "noloop" => TokKind::Flag(s),
+            "volume" | "fade_in" | "fade_out" | "image_tag" | "name" | "voice_tag"=> {
                 TokKind::ParamKey(s)
             }
             _ => TokKind::Ident(s),
@@ -391,6 +435,9 @@ impl<'a> Lexer<'a> {
             '$' => {
                 tokens.push(self.tok_one_str(TokKind::Dollar));
                 self.bump();
+                let start = self.offset;
+                let content = self.dollar_line();
+                tokens.push(self.tok(TokKind::LuaBlock(content), start));
             },
             '-' => {
                 tokens.push(self.tok_one_str(TokKind::Minus));
