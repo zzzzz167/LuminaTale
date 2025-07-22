@@ -1,14 +1,13 @@
 use std::ops::Add;
 use crate::runtime::Ctx;
-use crate::event::EngineEvent;
-use crate::runtime::assets::Audio;
+use crate::event::OutputEvent;
+use crate::runtime::assets::{Audio, DialogueRecord, Sprite};
 use viviscript_core::ast::{Stmt, AudioAction, ShowAttr, Transition};
 use mlua::Lua;
-use crate::runtime::ctx::{DialogueRecord, Sprite};
 
 #[derive(Debug, Clone)]
 pub struct StmtEffect {
-    pub events: Vec<EngineEvent>,
+    pub events: Vec<OutputEvent>,
     pub next: NextAction,
 }
 
@@ -34,7 +33,7 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
             NextAction::Continue
         },
         Stmt::Narration { lines, .. } => {
-            events.push(EngineEvent::ShowNarration { lines: lines.clone() });
+            events.push(OutputEvent::ShowNarration { lines: lines.clone() });
             for i in lines{
                 ctx.dialogue_history.push(DialogueRecord {speaker: None, text: i.clone(), voice_path: None});
             }
@@ -55,10 +54,10 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
             }
             if path.is_some(){
                 ctx.audios.insert("voice".to_string(), Some(Audio{path:path.clone().unwrap(), volume: 0.7, fade_in: 0f32, fade_out: 0f32, looping: false}));
-                events.push(EngineEvent::PlayAudio {channel: "voice".to_string(), path:path.clone().unwrap(), fade_in: 0f32, volume: 0.7, looping: false});
+                events.push(OutputEvent::PlayAudio {channel: "voice".to_string(), path:path.clone().unwrap(), fade_in: 0f32, volume: 0.7, looping: false});
             }
             ctx.dialogue_history.push(DialogueRecord {speaker: Some(name.clone()), text: text.clone(), voice_path: path.clone()});
-            events.push(EngineEvent::ShowDialogue {name, content: text.clone()});
+            events.push(OutputEvent::ShowDialogue {name, content: text.clone()});
             NextAction::WaitInput
         },
         Stmt::Audio {action, channel, resource, options, ..} => {
@@ -76,14 +75,14 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
                     path: path.clone(),
                     volume, fade_in, fade_out, looping
                 }));
-                events.push(EngineEvent::PlayAudio {channel:channel.to_string(), path: path.clone(), fade_in, volume, looping });
+                events.push(OutputEvent::PlayAudio {channel:channel.to_string(), path: path.clone(), fade_in, volume, looping });
             }else{
                 let fade_out = if let Some(k) = options.fade_out{
                     k
                 } else {
                     ctx.audios.get(channel).unwrap().clone().unwrap().fade_out
                 };
-                events.push(EngineEvent::StopAudio {channel:channel.to_string(), fade_out});
+                events.push(OutputEvent::StopAudio {channel:channel.to_string(), fade_out});
                 ctx.audios.insert(channel.to_string(), None);
             }
             NextAction::Continue
@@ -98,13 +97,13 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
                         position: None,
                         zindex: 0usize
                     });
-                    events.push(EngineEvent::NewScene {transition: transition.clone()
+                    events.push(OutputEvent::NewScene {transition: transition.clone()
                         .unwrap_or(Transition{effect:"dissolve".into()}).effect});
                 }
             }else {
                 if let Some(layer) = ctx.layer_record.layer.get_mut("master") {
                     layer.clear();
-                    events.push(EngineEvent::NewScene {transition: transition.clone()
+                    events.push(OutputEvent::NewScene {transition: transition.clone()
                         .unwrap_or(Transition{effect:"dissolve".into()}).effect});
                 }
             }
@@ -133,7 +132,7 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
                     if let Some(trans) = position {
                         c.position = Some(trans.to_string());
                     }
-                    events.push(EngineEvent::UpdateSprite {transition:transition.clone()
+                    events.push(OutputEvent::UpdateSprite {transition:transition.clone()
                         .unwrap_or(Transition{effect:"dissolve".into()}).effect
                     });
                 }
@@ -151,7 +150,7 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
                         position: position.clone(),
                         zindex: 1usize,
                     });
-                events.push(EngineEvent::NewSprite {transition:transition.clone()
+                events.push(OutputEvent::NewSprite {transition:transition.clone()
                     .unwrap_or(Transition{effect:"dissolve".into()}).effect
                 });
             }
@@ -161,7 +160,7 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
             if let Some(pos) = ctx.layer_record.layer.get("master").unwrap()
                 .iter().position(|x| x.target == *target) {
                 ctx.layer_record.layer.get_mut("master").unwrap().remove(pos);
-                events.push(EngineEvent::HideSprite);
+                events.push(OutputEvent::HideSprite);
             }
             NextAction::Continue
         }
@@ -172,7 +171,7 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
         Stmt::Choice {title, arms, ..}=>{
             let options: Vec<String> = arms.iter().map(|a| a.text.clone()).collect();
             let bodies: Vec<Vec<Stmt>> = arms.iter().map(|a| a.body.clone()).collect();
-            ctx.push(EngineEvent::ShowChoice { title: title.clone(), options });
+            ctx.push(OutputEvent::ShowChoice { title: title.clone(), options });
             NextAction::WaitChoice(bodies)
         }
         Stmt::Jump {target,..} => NextAction::Jump(target.clone()),

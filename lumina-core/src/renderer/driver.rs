@@ -1,8 +1,11 @@
-use crate::renderer::Renderer;
-use crate::executor::Executor;
-use crate::event::EngineEvent;
+use crate::{
+    event::{InputEvent, OutputEvent},
+    renderer::Renderer,
+    storager,
+    Ctx, Executor,
+};
 use viviscript_core::ast::Script;
-use crate::Ctx;
+
 
 pub struct Driver<R: Renderer> {
     exe: Executor,
@@ -10,28 +13,46 @@ pub struct Driver<R: Renderer> {
 }
 
 impl<R: Renderer> Driver<R> {
-    pub fn new(ctx: &mut Ctx, ast: &Script, renderer: R) -> Self {
+    pub fn new(ctx: &mut Ctx, ast: &mut Script, renderer: R) -> Self {
         let mut exe = Executor::new();
-        exe.start(ctx, &ast, "init");
+        exe.start(ctx, ast, "init");
         Driver { exe, renderer }
     }
-    
     pub fn run(&mut self, ctx: &mut Ctx, ast: &Script) {
         loop {
-            let waiting = self.exe.step(ctx, &ast);
-            println!("{:?}", ctx.layer_record);
-            for ev in ctx.drain() {
-                if let Some(reply) = self.renderer.handle(&ev) {
-                    self.exe.feed(reply);
+            let waiting = self.exe.step(ctx, ast);
+            for out in ctx.drain() {
+                // 2. 渲染并尝试拿输入
+                if let Some(inp) = self.renderer.render(&out) {
+                    self.dispatch_input(ctx, ast, inp);
                 }
-                if matches!(ev, EngineEvent::End) {
+                if matches!(out, OutputEvent::End) {
                     return;
                 }
             }
-
-            if !waiting {
-                continue;
+            
+            if waiting {
+                if let Some(inp) = self.renderer.render(&OutputEvent::StepDone) {
+                    self.dispatch_input(ctx, ast, inp);
+                }
             }
+        }
+    }
+    
+    fn dispatch_input(&mut self, ctx: &mut Ctx, ast: &Script, inp: InputEvent) {
+        match inp { 
+            InputEvent::SaveRequest {slot} => {
+                storager::save(&format!("save{}.bin", slot), ctx.clone(), self.exe.clone())
+                    .unwrap_or_else(|e| eprintln!("save failed: {}", e));
+                self.dispatch_input(ctx, ast, InputEvent::Continue);
+            }
+            InputEvent::LoadRequest { slot } => {
+                if let Ok((new_ctx, new_exe)) = storager::load(&format!("save{}.bin", slot), ast) {
+                    *ctx = new_ctx;
+                    self.exe = new_exe;
+                }
+            }
+            _ => self.exe.feed(inp),
         }
     }
 }

@@ -1,8 +1,8 @@
 use crate::executor::frame::Frame;
 
-#[derive(Debug,Default)]
+#[derive(Debug,Default, Clone)]
 pub struct CallStack {
-    stack: Vec<Frame>
+    pub stack: Vec<Frame>
 }
 
 impl CallStack {

@@ -1,9 +1,8 @@
 pub mod terminal;
 pub mod driver;
 
-use crate::event::EngineEvent;
-use crate::runtime::Ctx;
+use crate::event::{InputEvent, OutputEvent};
 
 pub trait Renderer {
-    fn handle(&mut self, ev: &EngineEvent) -> Option<EngineEvent>;
+    fn render(&mut self, out: &OutputEvent) -> Option<InputEvent>;
 }
