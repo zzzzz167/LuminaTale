@@ -1,0 +1,40 @@
+character naka name=女招侍 image_tag=naka voice_tag=naka
+character fuka name=深见 image_tag=fuka
+character renge name=莲华 image_tag=renge voice_tag=renge
+
+label init
+play music bgm1 volume=0.8
+play sound 蝉鸣 loop
+scene bg 阳光透过树木
+
+naka:欢迎光临。您远道而来, 想必一定很累了吧?(0001)
+
+stop sound
+
+fuka:不会……空气很清新,让我也焕然一新呢
+
+show naka 旅店制服 微笑01 at center
+
+naka:是吗~那真是太好了(0002)
+
+:我因为撰稿的需要,而造访了这间位于信州山间的温泉宿驿.
+
+scene bg 蓝色 天空
+
+:我的职业是,小说家……用这个词在脸上比较有光……但是到目前为止,我还没有发表过是吗了不起的作品,只不过是个初出茅庐的恐怖小说家
+:一年前，我获得了户川恐怖小说奖，于是在文坛里崭露头角。之后，不少文艺杂志和恐怖小说杂志时常让我歇一歇短篇小说
+:我离顶级畅销书作家还差得远，但只要不挥霍，我的工作量也足够维持生计。这就是我目前的真实情况
+
+naka:您的包我代为保管了.那么,请到里面来(0003)
+fuka:谢谢
+
+stop music
+
+scene bg 旅馆 廊下
+:我在笑盈盈的女招待那里存了包,然后走向旅馆里面
+:这间旅馆算不上一流,可氛围还是相当不错
+
+show naka 旅店制服 微笑02 at center
+naka:这种穷乡僻壤的地方,会感到吃惊吧?(0004)
+fuka:不会不会……我爱好登山.与像东京这样乱七八糟的都市相比,这里有一种超凡脱俗的感觉……感觉自己似乎来到了幻想中的世界,很愉快
+enlb

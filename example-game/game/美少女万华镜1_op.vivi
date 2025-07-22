@@ -4,8 +4,8 @@ character renge name=莲华 image_tag=renge voice_tag=renge
 
 label begin
 
-play music bgm1(volume=0.8)
-play sound loop 蝉鸣
+play music bgm1 volume=0.8
+play sound 蝉鸣 loop
 scene bg 阳光透过树木
 
 naka:欢迎光临。您远道而来, 想必一定很累了吧?(0001)

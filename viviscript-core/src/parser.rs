@@ -1,13 +1,21 @@
-use crate::ast::{AudioAction, AudioChannel, AudioOptions, ChoiceArm, SceneImage, Script, ShowAttr, Speaker, Stmt, Transition};
+//! Recursive-descent parser that turns a token stream into an AST.
+//!
+//! The parser is intentionally panic-happy: any syntax error immediately aborts
+//! with a descriptive message.  This keeps the implementation small and makes
+//! test failures easy to diagnose.
+
+use crate::ast::{AudioAction, AudioOptions, ChoiceArm, SceneImage, Script, ShowAttr, Speaker, Stmt, Transition};
 use crate::lexer::{Span, Tok, TokKind};
 use regex::Regex;
 
+/// Parser control-flow state.
 #[derive(PartialEq)]
 enum Status {
     Run,
     Stop,
 }
 
+/// Recursive-descent parser for the visual-novel scripting language.
 pub struct Parser<'a> {
     toks: &'a [Tok],
     cursor: usize,
@@ -15,6 +23,7 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    /// Creates a new parser positioned at the beginning of `toks`.
     pub fn new(toks: &'a [Tok]) -> Self {
         Self {
             toks,
@@ -23,32 +32,38 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Returns the next token *without* advancing the cursor.
     fn peek(&self) -> Option<&TokKind> {
         self.toks.get(self.cursor).map(|t| &t.tok)
     }
 
+    /// Advances the cursor and returns the consumed token.
     fn bump(&mut self) -> &'a Tok {
         let tok = &self.toks[self.cursor];
         self.cursor += 1;
         tok
     }
 
+    /// Returns the span of the *current* token (useful for error reporting).
     fn span(&self) -> Span {
         self.toks[self.cursor].span
     }
 
+    /// Checks whether the next token has the same discriminant as `k`.
     fn at(&self, k: TokKind) -> bool {
         self.peek()
             .map(|tk| std::mem::discriminant(tk) == std::mem::discriminant(&k))
             .unwrap_or(false)
     }
 
+    /// Consumes the next token and panics if it is not exactly `expect`.
     fn expect(&mut self, expect: TokKind) -> &'a Tok {
         let tok = self.bump();
         assert_eq!(tok.tok, expect, "expected {:?}, got {:?} at {:?}", expect, tok.tok, tok.span);
         tok
     }
-
+    
+    /// Consumes the next token and panics if it is **not** in `token`.
     fn expect_any<I>(&mut self, token: I) -> &'a Tok
     where
         I: IntoIterator<Item = TokKind>,
@@ -73,6 +88,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Advances the cursor only if the next token matches `k`.
     fn consume(&mut self, k: TokKind) -> bool {
         if self.peek() == Some(&k) {
             self.bump();
@@ -82,6 +98,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Consumes and returns an identifier token.
     fn ident(&mut self) -> String {
         match &self.bump().tok {
             TokKind::Ident(s) => String::from(s),
@@ -89,6 +106,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Consumes and returns a string literal token.
     fn string(&mut self) -> String {
         match &self.bump().tok {
             TokKind::Str(s) => String::from(s),
@@ -96,6 +114,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Consumes and returns a numeric literal token.
     fn num(&mut self) -> f64 {
         match &self.bump().tok {
             TokKind::Num(n) => *n,
@@ -103,6 +122,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Consumes either a string literal or an identifier.
     fn str_or_ident(&mut self) -> String {
         match self.peek() {
             Some(TokKind::Str(_)) => self.string(),
@@ -111,6 +131,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Skips over any trivia (new-lines and comments) at the current position.
     fn skip_trivia(&mut self) {
         while let Some(k) = self.peek() {
             match k {
@@ -122,6 +143,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Entry-point: parses the entire token stream into a [`Script`].
     pub fn parse(mut self) -> Script {
         let mut body = Vec::new();
         while self.peek().is_some() && self.status == Status::Run {
@@ -133,6 +155,7 @@ impl<'a> Parser<'a> {
         Script { body }
     }
 
+    /// Top-level statement dispatcher.
     fn stmt(&mut self) -> Option<Stmt> {
         match self.peek() {
             Some(TokKind::Character) => Some(self.character()),
@@ -167,6 +190,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parses a `label <id> enlb` statement.
     fn label(&mut self) -> Stmt {
         let span = self.span();
         self.expect(TokKind::Label);
@@ -183,20 +207,23 @@ impl<'a> Parser<'a> {
         Stmt::Label { span, id, body }
     }
 
+    /// Parses a `jump <label>` statement.
     fn jump(&mut self) -> Stmt {
         let span = self.span();
         self.expect(TokKind::Jump);
         let target = self.ident();
         Stmt::Jump { span, target }
     }
-
+    
+    /// Parses a `call <label>` statement.
     fn call(&mut self) -> Stmt {
         let span = self.span();
         self.expect(TokKind::Call);
         let target = self.ident();
         Stmt::Call { span, target }
     }
-
+    
+    /// Parses a `choice [title] ... enco` statement.
     fn choice(&mut self) -> Stmt {
         let span = self.span();
         self.expect(TokKind::Choice);
@@ -227,6 +254,7 @@ impl<'a> Parser<'a> {
         Stmt::Choice { span, title, arms }
     }
 
+    /// Parses a character statement.
     fn character(&mut self) -> Stmt {
         let span = self.span();
         self.expect(TokKind::Character);
@@ -254,7 +282,8 @@ impl<'a> Parser<'a> {
             voice_tag,
         }
     }
-
+    
+    /// Parses `<speaker> [ @ alias ]: "text"` dialogue.
     fn dialogue(&mut self) -> Stmt {
         let span = self.span();
         let name = self.ident();
@@ -285,6 +314,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parses a colon-style narration block.
     fn narration(&mut self) -> Stmt {
         let span = self.span();
         self.expect(TokKind::Colon);
@@ -295,6 +325,7 @@ impl<'a> Parser<'a> {
         Stmt::Narration { span, lines }
     }
 
+    /// Parses a `lua ... enlua` block.
     fn luablock(&mut self) -> Stmt {
         let span = self.span();
         self.expect(TokKind::Lua);
@@ -307,7 +338,8 @@ impl<'a> Parser<'a> {
 
         Stmt::LuaBlock {span, code}
     }
-    
+
+    /// Parses a `$lua_block` inline Lua expression.
     fn dollar_luablock(&mut self) -> Stmt {
         let span = self.span();
         self.expect(TokKind::Dollar);
@@ -320,24 +352,18 @@ impl<'a> Parser<'a> {
 
     }
 
+    /// Parses `play <channel> <resource> [options...] `.
     fn play_audio(&mut self) -> Stmt {
         let span = self.span();
         self.expect(TokKind::Play);
         let action = AudioAction::Play;
         let mut r#loop = false;
-        let channel = match self.str_or_ident().as_str() {
-            "music" => {
-                r#loop = true;
-                AudioChannel::Music
-            }
-            "sound" => AudioChannel::Sound,
-            "voice" => AudioChannel::Voice,
-            _ => panic!("No channel named {}", self.ident()),
-        };
+        let channel = self.str_or_ident();
         let resource = Some(self.str_or_ident());
 
         let mut volume = None;
         let mut fade_in = None;
+        let mut fade_out = None;
         let mut have_a_loop = false;
         while let Some(TokKind::ParamKey(k) | TokKind::Flag(k)) = self.peek() {
             let key = k.clone();
@@ -359,6 +385,7 @@ impl<'a> Parser<'a> {
                 match key.as_str() {
                     "volume" => volume = Some(val),
                     "fade_in" => fade_in = Some(val),
+                    "fade_out" => fade_out = Some(val),
                     _ => panic!("Not available paramKey named {}", key),
                 }
             }
@@ -367,8 +394,8 @@ impl<'a> Parser<'a> {
         let options = AudioOptions {
             volume,
             fade_in,
+            fade_out,
             r#loop,
-            fade_out: None,
         };
         Stmt::Audio {
             span,
@@ -379,16 +406,12 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parses `stop <channel> [ options... ]`.
     fn stop_audio(&mut self) -> Stmt {
         let span = self.span();
         self.expect(TokKind::Stop);
         let action = AudioAction::Stop;
-        let channel = match self.str_or_ident().as_str() {
-            "music" => AudioChannel::Music,
-            "sound" => AudioChannel::Sound,
-            "voice" => AudioChannel::Voice,
-            _ => panic!("No channel named {}", self.ident()),
-        };
+        let channel = self.str_or_ident();
         let mut fade_out = None;
         while let Some(TokKind::ParamKey(k)) = self.peek() {
             let key = k.clone();
@@ -415,6 +438,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parses `scene [ <image> [ attrs... ] ] [ with <effect> ]`.
     fn scene(&mut self) -> Stmt {
         let span = self.span();
         let mut image = None;
@@ -476,6 +500,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parses `show <target> [attr|-attr...] [at <pos>] [with <effect>]`.
     fn show(&mut self) -> Stmt {
         let span = self.span();
         self.expect(TokKind::Show);
@@ -518,6 +543,7 @@ impl<'a> Parser<'a> {
         Stmt::Show {span,target,attrs,position,transition}
     }
 
+    /// Parses `hide <target>`.
     fn hide(&mut self) -> Stmt {
         let span = self.span();
         self.expect(TokKind::Hide);
