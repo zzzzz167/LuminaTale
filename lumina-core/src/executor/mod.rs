@@ -147,6 +147,7 @@ impl Executor {
 fn preload(ctx: &mut Ctx, node: &mut Script) {
     pre_collect_characters(ctx, &node.body);
     pre_choice_labels(node);
+    pre_narration_lines(&mut node.body);
     ctx.audios.insert("music".to_string(), None);
     ctx.audios.insert("sound".to_string(), None);
     ctx.audios.insert("voice".to_string(), None);
@@ -225,4 +226,29 @@ fn find_in_stmt<'a>(stmt: &'a Stmt, name: &str) -> Option<&'a [Stmt]> {
         }
         _ => None,
     }
+}
+
+fn pre_narration_lines(body: &mut Vec<Stmt>) {
+    let mut new_body = Vec::new();
+    for stmt in body.drain(..) {
+        match stmt { 
+            Stmt::Narration {span, lines} => {
+                for l in lines {
+                    new_body.push(Stmt::Narration {span, lines: vec![l]});
+                }
+            },
+            Stmt::Label { span, id, mut body } => {
+                pre_narration_lines(&mut body);
+                new_body.push(Stmt::Label { span, id, body });
+            },
+            Stmt::Choice { span, title, mut arms } => {
+                for arm in &mut arms {
+                    pre_narration_lines(&mut arm.body);
+                }
+                new_body.push(Stmt::Choice { span, title, arms });
+            }
+            _ => new_body.push(stmt),
+        }
+    }
+    *body = new_body;
 }

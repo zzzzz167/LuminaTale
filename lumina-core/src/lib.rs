@@ -7,5 +7,5 @@ pub mod storager;
 
 pub use runtime::Ctx;
 pub use executor::Executor;
-pub use renderer::terminal::TerminalRenderer;
+pub use renderer::terminal::TuiRenderer;
 pub use event::OutputEvent;

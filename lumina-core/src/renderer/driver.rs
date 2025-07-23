@@ -22,17 +22,15 @@ impl<R: Renderer> Driver<R> {
         loop {
             let waiting = self.exe.step(ctx, ast);
             for out in ctx.drain() {
-                // 2. 渲染并尝试拿输入
-                if let Some(inp) = self.renderer.render(&out) {
+                if let Some(inp) = self.renderer.render(&out, ctx) {
                     self.dispatch_input(ctx, ast, inp);
                 }
                 if matches!(out, OutputEvent::End) {
                     return;
                 }
             }
-            
             if waiting {
-                if let Some(inp) = self.renderer.render(&OutputEvent::StepDone) {
+                if let Some(inp) = self.renderer.render(&OutputEvent::StepDone, ctx) {
                     self.dispatch_input(ctx, ast, inp);
                 }
             }
@@ -49,6 +47,7 @@ impl<R: Renderer> Driver<R> {
             InputEvent::LoadRequest { slot } => {
                 if let Ok((new_ctx, new_exe)) = storager::load(&format!("save{}.bin", slot), ast) {
                     *ctx = new_ctx;
+                    ctx.dialogue_history.pop();
                     self.exe = new_exe;
                 }
             }
