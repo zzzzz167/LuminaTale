@@ -10,3 +10,4 @@ mlua = {version = "0.11.1",  features = ["lua54", "vendored"]}
 anyhow = "1.0.98"
 bincode = { version = "2.0.1", features = ["serde"] }
 ratatui = "0.29.0"
+log = "0.4.27"

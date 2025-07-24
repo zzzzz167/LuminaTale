@@ -1,15 +1,30 @@
 use viviscript_core::lexer::Lexer;
 use viviscript_core::parser::Parser;
-use lumina_core::{Ctx, TuiRenderer};
+use lumina_core::{Ctx, TuiRenderer}; 
 use lumina_core::renderer::driver::Driver;
 use std::fs;
+use std::fs::File;
+use env_logger::Target;
 
 fn main() {
-    let s = fs::read_to_string("game/test.vivi").expect("Should not fail");
+    let log_file = File::create("lumina.log").expect("Failed to create log file");
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug"))
+        .target(Target::Pipe(Box::new(log_file)))
+        .init();
+    
+    log::info!("Starting Lumina runtime");
+    let s = fs::read_to_string("example-game/game/test.vivi").expect("Should not fail");
+    log::debug!("Loaded script: {} bytes", s.len());
+    
     let lexer = Lexer::new(&s).run();
+    log::debug!("Lexing complete: {} tokens", lexer.len());
+    
     let mut ast = Parser::new(&lexer).parse();
+    log::info!("Parsing complete");
+    
     let mut ctx = Ctx::default();
     let renderer = TuiRenderer::new().unwrap();
     let mut driver = Driver::new(&mut ctx, &mut ast, renderer);
     driver.run(&mut ctx, &ast);
+    log::info!("Game finished");
 }

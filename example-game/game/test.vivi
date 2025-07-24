@@ -87,7 +87,7 @@ show renge 和服 平静01 at center
 renge@"???":……
 fuka:哇啊!
 
-play music bgm01(volume=0.7,fade_in=3.0)
+play music bgm01 volume=0.7 fade_in=3.0
 :突然，一个女孩站在我面前
 renge@"???":……
 fuka:呃……啊，你是……?

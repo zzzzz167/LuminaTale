@@ -145,6 +145,7 @@ impl Executor {
 }
 
 fn preload(ctx: &mut Ctx, node: &mut Script) {
+    log::info!("Processing preload");
     pre_collect_characters(ctx, &node.body);
     pre_choice_labels(node);
     pre_narration_lines(&mut node.body);
@@ -191,7 +192,7 @@ fn pre_choice_labels(script: &mut Script) {
                         let label = format!("__choice_{}_{}", *seq, idx);
                         let old_body = std::mem::take(&mut arm.body);
                         arm.body = vec![Stmt::Label {
-                            span: Span {start:0, end:0},
+                            span: Span {start:0, end:0, line:0},
                             id: label,
                             body: old_body,
                         }]

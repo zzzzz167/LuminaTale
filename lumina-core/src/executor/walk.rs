@@ -20,6 +20,7 @@ pub enum NextAction {
     WaitInput
 }
 pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
+    log::trace!("walk_stmt: {:?}", stmt);
     let mut events = Vec::new();
     let next = match stmt {
         Stmt::CharacterDef{id,name,image_tag,voice_tag,..} => {

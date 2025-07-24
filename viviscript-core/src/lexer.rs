@@ -1,4 +1,4 @@
-//! Lexical analyser for a simple visual-novel scripting language.
+//! Lexical analyzer for a simple visual-novel scripting language.
 //!
 //! The lexer recognises keywords (`scene`, `show`, `choice`, …),
 //! string/number literals, Lua blocks and a handful of punctuation
@@ -14,6 +14,7 @@ use unicode_xid::UnicodeXID;
 pub struct Span {
     pub start: usize,
     pub end: usize,
+    pub line: usize,
 }
 
 /// A single token together with its position in the source file.
@@ -142,11 +143,11 @@ impl<'a> Lexer<'a> {
     }
     
     fn tok(&mut self,tok: TokKind, start: usize) -> Tok{
-        Tok { tok, span: Span { start, end: self.offset } }
+        Tok { tok, span: Span { start, end: self.offset, line: self.line } }
     }
     
     fn tok_one_str (&mut self,tok: TokKind) -> Tok{
-        Tok { tok, span: Span { start: self.offset, end: self.offset+1 } }
+        Tok { tok, span: Span { start: self.offset, end: self.offset+1, line: self.line } }
     }
 
     /// Consume `kw` without any checks; caller must first call `peek_keyword`.
@@ -384,18 +385,18 @@ impl<'a> Lexer<'a> {
                     for _ in 0..2 {self.bump();}
                     let start = self.offset;
                     let content = self.triple_quote();
-                    tokens.push(Tok{tok: TokKind::Str(content),span:Span{start,end:self.offset - 3}});
+                    tokens.push(Tok{tok: TokKind::Str(content),span:Span{start,end:self.offset - 3, line: self.line}});
                 } else {
                     let start = self.offset;
                     let content = self.string_literal('"');
-                    tokens.push(Tok{tok: TokKind::Str(content),span:Span{start,end:self.offset - 1}});
+                    tokens.push(Tok{tok: TokKind::Str(content),span:Span{start,end:self.offset - 1, line: self.line}});
                 }
             }
             '\'' => {
                 self.bump();
                 let start = self.offset;
                 let content = self.string_literal('\'');
-                tokens.push(Tok{tok: TokKind::Str(content),span:Span{start,end:self.offset - 1}});
+                tokens.push(Tok{tok: TokKind::Str(content),span:Span{start,end:self.offset - 1, line: self.line}});
             },
             ':' => {
                 tokens.push(self.tok_one_str(TokKind::Colon));
@@ -464,7 +465,10 @@ impl<'a> Lexer<'a> {
                     tokens.push(self.tok(tok, start));
                 }
             },
-            _ => {self.bump();}
+            _ => {
+                let c = self.bump().unwrap();
+                log::warn!("line {}: unexpected character '{}'", self.line, c);
+            }
         }
     }
 
@@ -487,14 +491,14 @@ impl<'a> Lexer<'a> {
         while let Some(c) = self.peek() {
             if c == ':' { break; }
             if c == '\n' {
-                tokens.push(Tok{tok: TokKind::Str(text.trim_end().to_owned()),span:Span{start,end:self.offset}});
+                tokens.push(Tok{tok: TokKind::Str(text.trim_end().to_owned()),span:Span{start,end:self.offset, line: self.line}});
                 tokens.push(self.tok_one_str(TokKind::Newline));
                 self.bump();
                 return;
             }
             text.push(self.bump().unwrap());
         }
-        tokens.push(Tok{tok: TokKind::Str(text.trim_end().to_owned()),span:Span{start,end:self.offset}});
+        tokens.push(Tok{tok: TokKind::Str(text.trim_end().to_owned()),span:Span{start,end:self.offset,line: self.line}});
 
         // Expect ':' after the text
         if self.peek() == Some(':') {

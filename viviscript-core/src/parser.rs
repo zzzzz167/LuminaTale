@@ -7,6 +7,7 @@
 use crate::ast::{AudioAction, AudioOptions, ChoiceArm, SceneImage, Script, ShowAttr, Speaker, Stmt, Transition};
 use crate::lexer::{Span, Tok, TokKind};
 use regex::Regex;
+use log::{debug, error, warn};
 
 /// Parser control-flow state.
 #[derive(PartialEq)]
@@ -25,6 +26,7 @@ pub struct Parser<'a> {
 impl<'a> Parser<'a> {
     /// Creates a new parser positioned at the beginning of `toks`.
     pub fn new(toks: &'a [Tok]) -> Self {
+        debug!("Parser created with {} tokens", toks.len());
         Self {
             toks,
             cursor: 0,
@@ -35,6 +37,13 @@ impl<'a> Parser<'a> {
     /// Returns the next token *without* advancing the cursor.
     fn peek(&self) -> Option<&TokKind> {
         self.toks.get(self.cursor).map(|t| &t.tok)
+    }
+
+    fn peek_line(&self) -> usize {
+        self.toks
+            .get(self.cursor)
+            .map(|t| t.span.line)
+            .unwrap_or(0)
     }
 
     /// Advances the cursor and returns the consumed token.
@@ -59,33 +68,31 @@ impl<'a> Parser<'a> {
     /// Consumes the next token and panics if it is not exactly `expect`.
     fn expect(&mut self, expect: TokKind) -> &'a Tok {
         let tok = self.bump();
-        assert_eq!(tok.tok, expect, "expected {:?}, got {:?} at {:?}", expect, tok.tok, tok.span);
+        if tok.tok != expect {
+            error!(
+                "line {}: expected {:?}, got {:?}",
+                tok.span.line, expect, tok.tok
+            );
+            std::process::exit(1);
+        }
         tok
     }
     
-    /// Consumes the next token and panics if it is **not** in `token`.
-    fn expect_any<I>(&mut self, token: I) -> &'a Tok
+    /// Consumes the next token and panics if it is **not** in `kinds`.
+    fn expect_any<I>(&mut self, kinds: I) -> &'a Tok
     where
         I: IntoIterator<Item = TokKind>,
     {
-        let mut v = Vec::new();
-        let mut matched = false;
-        v.extend(token);
-        if let Some(next) = self.peek(){
-
-            for i in v.iter().cloned() {
-                if i == *next {
-                    matched = true;
-                    break
-                }
-            }
-        }
+        let kinds: Vec<_> = kinds.into_iter().collect();
         let tok = self.bump();
-        if !matched {
-            panic!("expect {:?}, but got {:?}", v, tok.tok);
-        } else {
-            tok
+        if !kinds.iter().any(|k| tok.tok == *k) {
+            error!(
+                "line {}: expected one of {:?}, got {:?}",
+                tok.span.line, kinds, tok.tok
+            );
+            std::process::exit(1);
         }
+        tok
     }
 
     /// Advances the cursor only if the next token matches `k`.
@@ -102,7 +109,10 @@ impl<'a> Parser<'a> {
     fn ident(&mut self) -> String {
         match &self.bump().tok {
             TokKind::Ident(s) => String::from(s),
-            x => panic!("expected Ident, got {:?}", x),
+            x => {
+                error!("line {}: expected identifier, got {:?}", self.peek_line(), x);
+                std::process::exit(1);
+            }
         }
     }
 
@@ -110,7 +120,10 @@ impl<'a> Parser<'a> {
     fn string(&mut self) -> String {
         match &self.bump().tok {
             TokKind::Str(s) => String::from(s),
-            x => panic!("expected String, got {:?}", x),
+            x => {
+                error!("line {}: expected string, got {:?}", self.peek_line(), x);
+                std::process::exit(1);
+            }
         }
     }
 
@@ -118,7 +131,10 @@ impl<'a> Parser<'a> {
     fn num(&mut self) -> f64 {
         match &self.bump().tok {
             TokKind::Num(n) => *n,
-            x => panic!("expected Num, got {:?}", x),
+            x => {
+                error!("line {}: expected number, got {:?}", self.peek_line(), x);
+                std::process::exit(1);
+            }
         }
     }
 
@@ -127,7 +143,10 @@ impl<'a> Parser<'a> {
         match self.peek() {
             Some(TokKind::Str(_)) => self.string(),
             Some(TokKind::Ident(_)) => self.ident(),
-            _ => panic!("expected Str or Ident, got {:?}", self.peek()),
+            _ => {
+                error!("line {}: expected string or identifier", self.peek_line());
+                std::process::exit(1);
+            }
         }
     }
 
@@ -145,6 +164,7 @@ impl<'a> Parser<'a> {
 
     /// Entry-point: parses the entire token stream into a [`Script`].
     pub fn parse(mut self) -> Script {
+        debug!("Starting parse");
         let mut body = Vec::new();
         while self.peek().is_some() && self.status == Status::Run {
             match self.stmt() {
@@ -152,6 +172,7 @@ impl<'a> Parser<'a> {
                 None => {}
             }
         }
+        debug!("Parse complete: {} top-level statements", body.len());
         Script { body }
     }
 
@@ -181,11 +202,10 @@ impl<'a> Parser<'a> {
                 None
             }
             _ => {
-                let span = self.span();
-                Some(Stmt::Error {
-                    span,
-                    msg: format!("Undo statement, got {:?}", self.bump()),
-                })
+                let line = self.peek_line();
+                let tok = self.bump();
+                warn!("line {}: skipped unexpected token {:?}", line, tok.tok);
+                None
             }
         }
     }
@@ -197,7 +217,10 @@ impl<'a> Parser<'a> {
         let id = self.ident();
         let mut body = Vec::new();
         while !matches!(self.peek(), Some(TokKind::EnLabel) | None) {
-            if self.at(TokKind::Eof) {panic!("Unexpected EOF")}
+            if self.at(TokKind::Eof) {
+                error!("line {}: unexpected EOF inside label '{}'", span.line, id);
+                std::process::exit(1);
+            }
             match self.stmt() {
                 Some(s) => body.push(s),
                 None => {}
@@ -227,10 +250,11 @@ impl<'a> Parser<'a> {
     fn choice(&mut self) -> Stmt {
         let span = self.span();
         self.expect(TokKind::Choice);
-        let mut title = None;
-        if self.at(TokKind::Str("".into())) {
-            title = Some(self.string());
-        }
+        let title = if self.at(TokKind::Str("".into())) {
+            Some(self.string())
+        } else {
+            None
+        };
 
         let mut arms = Vec::new();
 
@@ -243,9 +267,10 @@ impl<'a> Parser<'a> {
                 Some(s) => body.push(s),
                 None => {}
             }
-
+            
             if body.is_empty() {
-                panic!("empty body");
+                error!("line {}: empty choice arm", self.peek_line());
+                std::process::exit(1);
             }
 
             arms.push(ChoiceArm { text, body });
@@ -271,7 +296,10 @@ impl<'a> Parser<'a> {
                 "name" => name = Some(val),
                 "image_tag" => image_tag = Some(val),
                 "voice_tag" => voice_tag = Some(val),
-                _ => panic!("Not a available paramKey {}", key),
+                _ => {
+                    error!("line {}: unknown parameter key '{}'", self.peek_line(), key);
+                    std::process::exit(1);
+                }
             }
         }
         Stmt::CharacterDef {
@@ -287,24 +315,24 @@ impl<'a> Parser<'a> {
     fn dialogue(&mut self) -> Stmt {
         let span = self.span();
         let name = self.ident();
-        let mut alias = None;
-        if self.at(TokKind::At) {
-            self.consume(TokKind::At);
-            alias = Some(self.str_or_ident());
-        }
+        let alias = if self.at(TokKind::At) {
+            self.bump();
+            Some(self.str_or_ident())
+        } else {
+            None
+        };
 
         self.expect(TokKind::Colon);
-        let str = self.string();
-
-        let mut voice_index = None;
-        let mut text = String::new();
+        let raw = self.string();
+        
         let re = Regex::new(r"\(([^()]*)\)$").unwrap();
-        if let Some(caps) = re.captures(&str) {
-            voice_index = Some(caps.get(1).unwrap().as_str().to_string());
-            text.push_str(&*re.replace(&str, ""));
+        let (text, voice_index) = if let Some(caps) = re.captures(&raw) {
+            let idx = caps.get(1).unwrap().as_str().to_string();
+            let txt = re.replace(&raw, "").trim_end().to_string();
+            (txt, Some(idx))
         } else {
-            text += &str;
-        }
+            (raw, None)
+        };
 
         Stmt::Dialogue {
             span,
@@ -330,7 +358,8 @@ impl<'a> Parser<'a> {
         let span = self.span();
         self.expect(TokKind::Lua);
         if !self.at(TokKind::LuaBlock("".into())) {
-            panic!("expected lua block, but got {:?}", self.bump());
+            error!("line {}:expected lua block, but got {:?}", self.peek_line(),self.bump());
+            std::process::exit(1);
         }
         let code = self.bump().tok.as_str().unwrap().to_string();
         self.skip_trivia();
@@ -344,7 +373,8 @@ impl<'a> Parser<'a> {
         let span = self.span();
         self.expect(TokKind::Dollar);
         if !self.at(TokKind::LuaBlock("".into())) {
-            panic!("expected lua block, but got {:?}", self.bump());
+            error!("line {}:expected lua block, but got {:?}", self.peek_line(),self.bump());
+            std::process::exit(1);
         }
         let code = self.bump().tok.as_str().unwrap().to_string();
 
@@ -370,12 +400,16 @@ impl<'a> Parser<'a> {
             if self.at(TokKind::Flag("".into())) {
                 self.bump();
                 if have_a_loop {
-                    panic!("Already have define on 'loop' keyword");
+                    error!("line {}: Already had a loop define",self.peek_line());
+                    std::process::exit(1);
                 }
                 match key.as_str() {
                     "loop" => r#loop = true,
                     "noloop" => r#loop = false,
-                    _ => panic!("Not available flag named {}", key),
+                    _ => {
+                        error!("line {}: Not available flag named {}",self.peek_line(), key);
+                        std::process::exit(1);
+                    },
                 }
                 have_a_loop = true;
             } else {
@@ -386,7 +420,10 @@ impl<'a> Parser<'a> {
                     "volume" => volume = Some(val),
                     "fade_in" => fade_in = Some(val),
                     "fade_out" => fade_out = Some(val),
-                    _ => panic!("Not available paramKey named {}", key),
+                    _ => {
+                        error!("line {}: unknown param '{}'", self.peek_line(), key);
+                        std::process::exit(1);
+                    }
                 }
             }
         }
@@ -420,7 +457,10 @@ impl<'a> Parser<'a> {
             let val = self.num() as f32;
             match key.as_str() {
                 "fade_out" => fade_out = Some(val),
-                _ => panic!("Not available paramKey named {}", key),
+                _ => { 
+                    error!("line {}: unknown param '{}'", self.peek_line(), key);
+                    std::process::exit(1);
+                },
             }
         }
         let options = AudioOptions {
@@ -467,7 +507,8 @@ impl<'a> Parser<'a> {
                     && next != Some(&TokKind::Eof)
                     && !self.at(TokKind::Comment("".into()))
                 {
-                    panic!("Invalid form");
+                    error!("line {}:expected Newline or Eof",self.peek_line());
+                    std::process::exit(1);
                 }
                 image = Some(SceneImage { prefix, attrs })
             }
@@ -484,10 +525,12 @@ impl<'a> Parser<'a> {
                         && self.peek() != Some(&TokKind::Eof)
                         && !self.at(TokKind::Comment("".into()))
                     {
-                        panic!("expected Newline or Eof");
+                        error!("line {}:expected Newline or Eof",self.peek_line());
+                        std::process::exit(1);
                     }
                 } else {
-                    panic!("Not available reserved keyword {}", k);
+                    error!("line {}:Not available reserved keyword {}", self.peek_line(),k);
+                    std::process::exit(1);
                 }
             }
             _ => {}
