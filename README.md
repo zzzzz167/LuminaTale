@@ -20,7 +20,7 @@
 
 ```bash
 # 克隆仓库
-git clone https://github.com/yourusername/lumina-tale.git
+git clone https://github.com/zzzzz167/LuminaTale.git
 cd lumina-tale
 
 # 运行示例游戏
