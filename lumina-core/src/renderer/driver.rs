@@ -55,7 +55,7 @@ impl<R: Renderer> Driver<R> {
             InputEvent::SaveRequest {slot} => {
                 log::info!("Try to save request slot: {}", slot);
                 storager::save(&format!("save{}.bin", slot), ctx.clone(), self.exe.clone())
-                    .unwrap_or_else(|e| eprintln!("save failed: {}", e));
+                    .unwrap_or_else(|e| log::error!("save failed: {}", e));
                 self.dispatch_input(ctx, ast, InputEvent::Continue);
                 log::info!("Save finished");
             }

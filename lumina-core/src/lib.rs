@@ -4,6 +4,7 @@ pub mod lua_glue;
 pub mod event;
 pub mod renderer;
 pub mod storager;
+pub mod config;
 
 pub use runtime::Ctx;
 pub use executor::Executor;

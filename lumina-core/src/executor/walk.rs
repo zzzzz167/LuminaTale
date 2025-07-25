@@ -2,6 +2,7 @@ use std::ops::Add;
 use crate::runtime::Ctx;
 use crate::event::OutputEvent;
 use crate::runtime::assets::{Audio, DialogueRecord, Sprite};
+use crate::config;
 use viviscript_core::ast::{Stmt, AudioAction, ShowAttr, Transition};
 use mlua::Lua;
 
@@ -41,36 +42,45 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
             NextAction::WaitInput
         },
         Stmt::Dialogue {speaker, text, voice_index, ..} => {
-            //TODO:Add config support
             let mut name = speaker.name.clone();
             let mut path = None;
             if let Some(cn) = ctx.characters.get(&name) {
                 name = cn.name.clone();
                 if let Some(vi) = voice_index {
-                    path = Some(cn.to_owned().voice_tag.unwrap().add("_").add(vi));
+                    path = Some(cn.to_owned().voice_tag.unwrap().add(&config::get().audio.voice_link).add(vi));
                 }
             }
             if let Some(al) = &speaker.alias{
                 name = al.clone();
             }
             if path.is_some(){
-                ctx.audios.insert("voice".to_string(), Some(Audio{path:path.clone().unwrap(), volume: 0.7, fade_in: 0f32, fade_out: 0f32, looping: false}));
-                events.push(OutputEvent::PlayAudio {channel: "voice".to_string(), path:path.clone().unwrap(), fade_in: 0f32, volume: 0.7, looping: false});
+                ctx.audios.insert("voice".to_string(), Some(Audio{
+                    path:path.clone().unwrap(), 
+                    volume: config::get().audio.voice_volume, 
+                    fade_in: 0f32, 
+                    fade_out: 0f32, 
+                    looping: false
+                }));
+                events.push(OutputEvent::PlayAudio {
+                    channel: "voice".to_string(), 
+                    path:path.clone().unwrap(), 
+                    fade_in: 0f32, 
+                    volume: config::get().audio.voice_volume, 
+                    looping: false});
             }
             ctx.dialogue_history.push(DialogueRecord {speaker: Some(name.clone()), text: text.clone(), voice_path: path.clone()});
             events.push(OutputEvent::ShowDialogue {name, content: text.clone()});
             NextAction::WaitInput
         },
         Stmt::Audio {action, channel, resource, options, ..} => {
-            //TODO:Add config support
             if !ctx.audios.contains_key(channel) {
-                panic!("Audio channel {} isn't registered", channel);
+                log::error!("Audio channel {} isn't registered", channel);
             }
             if matches!(action, AudioAction::Play){
                 let path = resource.clone().unwrap().to_string();
-                let volume = options.volume.unwrap_or(1.0);
-                let fade_in = options.fade_in.unwrap_or(0.0);
-                let fade_out = options.fade_out.unwrap_or(0.0);
+                let volume = options.volume.unwrap_or(config::get().audio.default_volume);
+                let fade_in = options.fade_in.unwrap_or(config::get().audio.fade_in);
+                let fade_out = options.fade_out.unwrap_or(config::get().audio.fade_out);
                 let looping = options.r#loop;
                 ctx.audios.insert(channel.to_string(), Some(Audio{
                     path: path.clone(),
@@ -99,13 +109,13 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
                         zindex: 0usize
                     });
                     events.push(OutputEvent::NewScene {transition: transition.clone()
-                        .unwrap_or(Transition{effect:"dissolve".into()}).effect});
+                        .unwrap_or(Transition{effect:config::get().layer.trans_effect.clone()}).effect});
                 }
             }else {
                 if let Some(layer) = ctx.layer_record.layer.get_mut("master") {
                     layer.clear();
                     events.push(OutputEvent::NewScene {transition: transition.clone()
-                        .unwrap_or(Transition{effect:"dissolve".into()}).effect});
+                        .unwrap_or(Transition{effect:config::get().layer.trans_effect.clone()}).effect});
                 }
             }
             NextAction::Continue
@@ -134,7 +144,7 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
                         c.position = Some(trans.to_string());
                     }
                     events.push(OutputEvent::UpdateSprite {transition:transition.clone()
-                        .unwrap_or(Transition{effect:"dissolve".into()}).effect
+                        .unwrap_or(Transition{effect:config::get().layer.trans_effect.clone()}).effect
                     });
                 }
             }
@@ -152,7 +162,7 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
                         zindex: 1usize,
                     });
                 events.push(OutputEvent::NewSprite {transition:transition.clone()
-                    .unwrap_or(Transition{effect:"dissolve".into()}).effect
+                    .unwrap_or(Transition{effect:config::get().layer.trans_effect.clone()}).effect
                 });
             }
             NextAction::Continue
@@ -166,7 +176,7 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
             NextAction::Continue
         }
         Stmt::LuaBlock {code,..} => {
-            lua.load(code).exec().unwrap_or_else(|e| eprintln!("Lua: {}", e));
+            lua.load(code).exec().unwrap_or_else(|e| log::error!("Lua: {}", e));
             NextAction::Continue
         },
         Stmt::Choice {title, arms, ..}=>{
