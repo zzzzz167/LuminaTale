@@ -1,6 +1,10 @@
-# Lumina Tale
+# LuminaTale
+
+<div align="center">
+<img src="./docs/assets/logo.JPG" alt="LuminaTale" width="300" >
 
 现代视觉小说引擎框架 | 基于Rust构建
+</div>
 
 ## ✨ 特性
 
