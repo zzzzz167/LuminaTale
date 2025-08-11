@@ -1,0 +1,35 @@
+name: benchmark
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'viviscript-core/src/**'
+      - 'viviscript-core/benches/**'
+      - 'Cargo.toml'
+
+permissions:
+  contents: write
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: action/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run benchmarks
+        run: cargo bench --bench parse_bench
+
+      - name: Deploy Criterion report to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./target/criterion/
+          destination_dir: criterion
+          keep_files: true
