@@ -24,6 +24,14 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
+      - name: Cache benchmark baseline
+        uses: actions/cache@v4
+        with:
+          path: ./target/criterion
+          key: criterion-baseline-${{ runner.os }}-${{ github.run_number }}
+          restore-keys: |
+            criterion-baseline-${{ runner.os }}-
+
       - name: Run benchmarks
         run: cargo bench --bench parse_bench
 
