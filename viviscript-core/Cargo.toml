@@ -7,3 +7,10 @@ edition = "2024"
 unicode-xid = "0.2.6"
 regex = "1.11.1"
 log = "0.4.27"
+
+[dev-dependencies]
+criterion = {version = "0.7.0", features = ["html_reports"]}
+
+[[bench]]
+name = "parse_bench"
+harness = false

@@ -1,5 +1,4 @@
 use std::panic;
-use log::log;
 use crate::{
     event::{InputEvent, OutputEvent},
     renderer::Renderer,

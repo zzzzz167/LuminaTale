@@ -1,210 +1,149 @@
-use viviscript_core::lexer::{Lexer, Tok};
+#[cfg(test)]
+mod tests {
+    use viviscript_core::lexer::Lexer;
+    use viviscript_core::lexer::TokKind;
 
-//FIXME:更新单元测试支持最新的词法分析器
-#[test]
-fn basics() {
-    let src = r#"
-character alice name="Alice" image_tag="alice_normal"
-"#;
-    let tokens = Lexer::new(src).run();
-    assert_eq!(tokens, 
-               vec![Tok::Character, 
-                    Tok::Ident("alice".to_string()), 
-                    Tok::ParamKey("name".to_string()), 
-                    Tok::Equals, 
-                    Tok::Str("Alice".to_string()), 
-                    Tok::ParamKey("image_tag".to_string()),
-                    Tok::Equals,
-                    Tok::Str("alice_normal".to_string()),
-                    Tok::Newline, 
-                    Tok::Eof])
-}
+    fn lex(src: &str) -> Vec<TokKind> {
+        let mut lexer = Lexer::new(src);
 
-#[test]
-fn triple_quotes() {
-    let src = r#""""hello\nworld""""#;
-    let tokens = Lexer::new(src).run();
-    assert_eq!(tokens[0], Tok::Str(String::from("hello\nworld")))
-}
+        lexer.run()
+            .into_iter()
+            .filter(|t| !matches!(t.tok, TokKind::Eof))
+            .map(|x| x.tok)
+            .collect()
+    }
 
-#[test]
-fn escapes() {
-    let s0 = Lexer::new(r#""line1\nline2""#).run();
-    assert_eq!(s0[0], Tok::Str("line1\nline2".to_string()));
+    fn assert_lex(src: &str, expect: Vec<TokKind>) {
+        let got = lex(src);
+        assert_eq!(got, expect, 
+                   "\nsource:\n{}\nexpected: {:?}\ngot:      {:?}",
+                   src, expect, got)
+        ;
+    }
 
-    let s2 = Lexer::new(r#""\\\"""#).run();
-    assert_eq!(s2[0], Tok::Str("\\\"".to_string()));
-}
-
-#[test]
-fn lua_block() {
-    let src1 = r#"
-lua
-print("test")
-enlua"#;
-    let toks1 = Lexer::new(src1).run();
-    assert_eq!(toks1, vec![Tok::Lua,Tok::LuaBlock("\nprint(\"test\")".to_string()),Tok::EnLua,Tok::Eof]);
+    #[test]
+    fn keywords_and_idents() {
+        assert_lex(
+            r#"character scene show hide play stop label jump call"#,
+            vec![
+                TokKind::Character,
+                TokKind::Scene,
+                TokKind::Show,
+                TokKind::Hide,
+                TokKind::Play,
+                TokKind::Stop,
+                TokKind::Label,
+                TokKind::Jump,
+                TokKind::Call,
+            ],
+        )
+    }
     
-    let src2 = r#"lua print("test") enlua"#;
-    let toks2 = Lexer::new(src2).run();
-    assert_eq!(toks2, vec![Tok::Lua,Tok::LuaBlock(" print(\"test\")".to_string()),Tok::EnLua,Tok::Eof]);
-}
+    #[test]
+    fn string_literals() {
+        assert_lex(
+            r#""hello" 'world' """triple""" "#,
+            vec![
+                TokKind::Str("hello".into()),
+                TokKind::Str("world".into()),
+                TokKind::Str("triple".into()),
+            ],
+        );
+    }
 
-#[test]
-fn test_keywords() {
-    let source = "character scene show hide play stop label enlb jump call";
-    let tokens = Lexer::new(source).run();
-    assert_eq!(
-        tokens,
-        vec![
-            Tok::Character,
-            Tok::Scene,
-            Tok::Show,
-            Tok::Hide,
-            Tok::Play,
-            Tok::Stop,
-            Tok::Label,
-            Tok::EnLabel,
-            Tok::Jump,
-            Tok::Call,
-            Tok::Eof,
-        ]
-    );
-}
+    #[test]
+    fn number_or_ident() {
+        assert_lex(
+            "42 3.14 2e10 2e-3 0xff bad42",
+            vec![
+                TokKind::Num(42.0),
+                TokKind::Num(3.14),
+                TokKind::Num(2e10),
+                TokKind::Num(2e-3),
+                TokKind::Ident("0xff".into()),
+                TokKind::Ident("bad42".into()),
+            ],
+        );
+    }
 
-#[test]
-fn test_identifiers() {
-    let source = "some_identifier another_ident_123";
-    let tokens = Lexer::new(source).run();
-    assert_eq!(
-        tokens,
-        vec![
-            Tok::Ident("some_identifier".to_string()),
-            Tok::Ident("another_ident_123".to_string()),
-            Tok::Eof,
-        ]
-    );
-}
+    #[test]
+    fn comments() {
+        assert_lex(
+            "-- this is a comment\n42",
+            vec![TokKind::Comment(" this is a comment".into()), TokKind::Newline, TokKind::Num(42.0)],
+        );
+    }
 
-#[test]
-fn test_strings() {
-    let source = r#""simple string" 'single-quoted string' :a colon string
-:"""multi-line
-string test""" 
-:another_colon_string
+    #[test]
+    fn lua_block() {
+        let src = r#"
+lua
+    print("hello")
+enlua
 "#;
-    let tokens = Lexer::new(source).run();
-    assert_eq!(
-        tokens,
-        vec![
-            Tok::Str("simple string".to_string()),
-            Tok::Str("single-quoted string".to_string()),
-            Tok::Colon,
-            Tok::Str("a colon string".to_string()),
-            Tok::Newline,
-            Tok::Colon,
-            Tok::Str("multi-line\nstring test".to_string()),
-            Tok::Newline,
-            Tok::Colon,
-            Tok::Str("another_colon_string".to_string()),
-            Tok::Newline,
-            Tok::Eof,
-        ]
-    );
-}
+        let mut lexer = Lexer::new(src);
+        let toks = lexer.run();
+        assert!(matches!(toks[0].tok, TokKind::Lua));
+        assert!(matches!(toks[1].tok, TokKind::LuaBlock(ref s) if s.trim() == r#"print("hello")"#));
+    }
 
-#[test]
-fn test_comments() {
-    let source = r#"-- This is a comment
-valid_code -- This is after code
-"#;
-    let tokens = Lexer::new(source).run();
-    assert_eq!(
-        tokens,
-        vec![
-            Tok::Comment(" This is a comment".to_string()),
-            Tok::Newline,
-            Tok::Ident("valid_code".to_string()),
-            Tok::Comment(" This is after code".to_string()),
-            Tok::Newline,
-            Tok::Eof,
-        ]
-    );
-}
+    #[test]
+    fn choice_block() {
+        let src = r#"
+choice
+    Yes:jump good_end
+    No:call bad_end
+enco"#;
+        let got = lex(src);
+        let expected = vec![
+            TokKind::Choice,
+            TokKind::Newline,
+            TokKind::Str("Yes".into()),
+            TokKind::Colon,
+            TokKind::Jump,
+            TokKind::Ident("good_end".into()),
+            TokKind::Newline,
+            TokKind::Str("No".into()),
+            TokKind::Colon,
+            TokKind::Call,
+            TokKind::Ident("bad_end".into()),
+            TokKind::Newline,
+            TokKind::EnChoice,
+        ];
+        assert_eq!(got, expected);
+    }
 
-#[test]
-fn test_numbers() {
-    let source = "123 45.67 1.2e10 1invalid1";
-    let tokens = Lexer::new(source).run();
-    assert_eq!(
-        tokens,
-        vec![
-            Tok::Num(123.0),
-            Tok::Num(45.67),
-            Tok::Num(1.2e10),
-            Tok::Ident("1invalid1".to_string()),
-            Tok::Eof,
-        ]
-    );
-}
+    #[test]
+    fn colon_line() {
+        assert_lex(
+            ": This is dialogue\n",
+            vec![TokKind::Colon, TokKind::Str("This is dialogue".into()), TokKind::Newline],
+        );
+    }
 
-#[test]
-fn test_choice_block() {
-    let source = r#"
-choice Test
-Option 1:jump label1
-Option 2:lua print("hello") enlua
-enco
-"#;
-    let tokens = Lexer::new(source).run();
-    assert_eq!(
-        tokens,
-        vec![
-            Tok::Choice,
-            Tok::Str("Test".to_string()),
-            Tok::Newline,
-            Tok::Str("Option 1".to_string()),
-            Tok::Colon,
-            Tok::Jump,
-            Tok::Ident("label1".to_string()),
-            Tok::Newline,
-            Tok::Str("Option 2".to_string()),
-            Tok::Colon,
-            Tok::Lua,
-            Tok::LuaBlock(" print(\"hello\")".to_string()),
-            Tok::EnLua,
-            Tok::Newline,
-            Tok::EnChoice,
-            Tok::Newline,
-            Tok::Eof,
-        ]
-    );
-}
+    #[test]
+    fn dollar_lua_line() {
+        assert_lex(
+            "$ x = 1 + 2\n",
+            vec![
+                TokKind::Dollar,
+                TokKind::LuaBlock("x = 1 + 2".into()),
+                TokKind::Newline,
+            ],
+        );
+    }
 
-#[test]
-fn test_scene_show_hide() {
-    let source = r#"scene bg_forest with fade_in
-show character1 at left
-hide character1
-"#;
-    let tokens = Lexer::new(source).run();
-    assert_eq!(
-        tokens,
-        vec![
-            Tok::Scene,
-            Tok::Ident("bg_forest".to_string()),
-            Tok::ParamKey("with".to_string()),
-            Tok::ParamKey("fade_in".to_string()),
-            Tok::Newline,
-            Tok::Show,
-            Tok::Ident("character1".to_string()),
-            Tok::ParamKey("at".to_string()),
-            Tok::Ident("left".to_string()),
-            Tok::Newline,
-            Tok::Hide,
-            Tok::Ident("character1".to_string()),
-            Tok::Newline,
-            Tok::Eof,
-        ]
-    );
+    #[test]
+    fn mixed_whitespace() {
+        assert_lex(
+            "  scene   \t show  \n  hide",
+            vec![TokKind::Scene, TokKind::Show, TokKind::Newline, TokKind::Hide],
+        );
+    }
+
+    #[test]
+    fn unexpected_char() {
+        // 仅检查能解析的部分；异常字符会留下 warning，但 token 流仍继续。
+        assert_lex("scene ^ hide", vec![TokKind::Scene, TokKind::Hide]);
+    }
 }
