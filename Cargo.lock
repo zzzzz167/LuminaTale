@@ -617,10 +617,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bincode",
+ "criterion",
  "log",
  "mlua",
  "once_cell",
  "ratatui",
+ "rustc-hash",
  "serde",
  "toml",
  "viviscript-core",

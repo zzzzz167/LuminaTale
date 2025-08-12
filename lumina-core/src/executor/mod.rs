@@ -2,6 +2,8 @@ mod frame;
 mod call_stack;
 mod walk;
 
+use std::rc::Rc;
+use rustc_hash::FxHashMap;
 use crate::runtime::Ctx;
 use viviscript_core::lexer::Span;
 use mlua::Lua;
@@ -17,7 +19,8 @@ pub struct Executor {
     call_stack: CallStack,
     lua: Lua,
     pending_choice: Option<Vec<Vec<Stmt>>>,
-    pause: bool
+    pause: bool,
+    label_map: FxHashMap<String, Rc<[Stmt]>>,
 }
 
 impl Executor {
@@ -26,12 +29,26 @@ impl Executor {
             call_stack: CallStack::default(),
             lua:Lua::new(),
             pending_choice: None,
-            pause: false
+            pause: false,
+            label_map: FxHashMap::default(),
         }
     }
-    pub fn start(&mut self, ctx: &mut Ctx ,script: &mut Script, label: &str) {
-        preload(ctx, script);
-        let body = find_label_body(script, label).unwrap_or_else(|| panic!("label {} not found",label));
+
+    pub fn preload_script(&mut self, script: &mut Script) {
+        // 1. 真正的 AST 预处理（拆分行、套隐式 label 等）
+        {
+            let mut dummy_ctx = Ctx::default();
+            preload(&mut dummy_ctx, script);
+        }
+
+        // 2. 建立 label → body 映射
+        self.label_map.clear();
+        build_label_map(&script.body, &mut self.label_map);
+    }
+    
+    pub fn start(&mut self, ctx: &mut Ctx, label: &str) {
+        init_ctx_runtime(ctx);
+        let body = self.label_body(label).unwrap_or_else(|| panic!("label {} not found",label));
         self.call_stack.push(Frame::new(label.to_string(),body.to_vec(), 0));
     }
     pub fn feed(&mut self, ev: InputEvent) {
@@ -77,10 +94,10 @@ impl Executor {
             .collect()
     }
 
-    pub fn restore(&mut self, script: &Script, snap: Vec<FrameSnapshot>) {
+    pub fn restore(&mut self, snap: Vec<FrameSnapshot>) {
         self.call_stack.clear();
         for fs in snap {
-            let body = find_label_body(script, &fs.label)
+            let body = self.label_body(&fs.label)
                 .unwrap_or_else(|| panic!("label {} not found", fs.label));
             if fs.pc > body.len() {
                 panic!("saved pc {} out of range for label {}", fs.pc, fs.label);
@@ -90,13 +107,13 @@ impl Executor {
         }
     }
 
-    pub fn step(&mut self, ctx: &mut Ctx, script: &Script) -> bool {
+    pub fn step(&mut self, ctx: &mut Ctx) -> bool {
         if self.pending_choice.is_some() || self.pause {
             return true;
         }
         if let Some(frame) = self.call_stack.top_mut() {
             if let Some(_) = frame.current() {
-                self.exec_current(ctx, script);
+                self.exec_current(ctx);
             } else {
                 self.call_stack.pop();
             }
@@ -106,7 +123,12 @@ impl Executor {
             false
         }
     }
-    fn exec_current(&mut self, ctx: &mut Ctx,script: &Script) {
+
+    fn label_body(&self, name: &str) -> Option<&[Stmt]> {
+        self.label_map.get(name).map(|rc| rc.as_ref())
+    }
+    
+    fn exec_current(&mut self, ctx: &mut Ctx) {
         let stmt =  {
             let frame = self.call_stack.top_mut().expect("no frame");
             frame.current().expect("no stmt").clone()
@@ -128,12 +150,18 @@ impl Executor {
                 self.pause = true;
             }
             NextAction::Jump(label) =>{
-                let body = find_label_body(script, &label).unwrap_or_else(|| panic!("label {} not found",label));
+                let body = self
+                    .label_body(&label)
+                    .unwrap_or_else(|| panic!("label {} not found", label))
+                    .to_vec();
                 self.call_stack.clear();
                 self.call_stack.push(Frame::new(label,body, 0));
             },
             NextAction::Call(target) => {
-                let body = find_label_body(script, &target).unwrap_or_else(|| panic!("label {} not found",target));
+                let body = self
+                    .label_body(&target)
+                    .unwrap_or_else(|| panic!("label {} not found",target))
+                    .to_vec();
                 let frame = self.call_stack.top_mut().unwrap();
                 let return_frame = Frame::new(frame.name.clone(),frame.stmts.clone(), frame.pc + 1);
                 self.call_stack.pop();
@@ -144,15 +172,34 @@ impl Executor {
     }
 }
 
+fn build_label_map(stmts: &[Stmt], map: &mut FxHashMap<String, Rc<[Stmt]>>) {
+    for stmt in stmts {
+        match stmt {
+            Stmt::Label { id, body, .. } => {
+                map.insert(id.clone(), Rc::from(body.as_slice()));
+                build_label_map(body, map);
+            }
+            Stmt::Choice { arms, .. } => {
+                for arm in arms {
+                    build_label_map(&arm.body, map);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 fn preload(ctx: &mut Ctx, node: &mut Script) {
     log::info!("Processing preload");
     pre_collect_characters(ctx, &node.body);
     pre_choice_labels(node);
     pre_narration_lines(&mut node.body);
+}
+
+fn init_ctx_runtime(ctx: &mut Ctx) {
     ctx.audios.insert("music".to_string(), None);
     ctx.audios.insert("sound".to_string(), None);
     ctx.audios.insert("voice".to_string(), None);
-
     ctx.layer_record.arrange.push("master".to_string());
     ctx.layer_record.layer.insert("master".to_string(), vec![]);
 }
@@ -202,30 +249,6 @@ fn pre_choice_labels(script: &mut Script) {
                 _ => {}
             }
         }
-    }
-}
-
-fn find_label_body<'a>(script: &'a Script, name: &str) -> Option<&'a [Stmt]> {
-    for stmt in &script.body {
-        if let Some(body) = find_in_stmt(stmt, name) {
-            return Some(body);
-        }
-    }
-    None
-}
-
-fn find_in_stmt<'a>(stmt: &'a Stmt, name: &str) -> Option<&'a [Stmt]> {
-    match stmt {
-        Stmt::Label { id, body, .. } if id == name => Some(body),
-        Stmt::Label { body, .. } => {
-            // 继续往这个 label 的 body 里找
-            body.iter().find_map(|s| find_in_stmt(s, name))
-        }
-        Stmt::Choice { arms, .. } => {
-            arms.iter()
-                .find_map(|arm| arm.body.iter().find_map(|s| find_in_stmt(s, name)))
-        }
-        _ => None,
     }
 }
 

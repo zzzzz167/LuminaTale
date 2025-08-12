@@ -32,7 +32,7 @@ fn main() {
     
     let mut ctx = Ctx::default();
     let renderer = TuiRenderer::new().unwrap();
-    let mut driver = Driver::new(&mut ctx, &mut ast, renderer);
-    driver.run(&mut ctx, &ast);
+    let mut driver = Driver::new(&mut ctx, ast, renderer);
+    driver.run(&mut ctx);
     log::info!("Game finished");
 }

@@ -18,12 +18,13 @@ pub fn save(path: &str, ctx: Ctx, exe: Executor) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn load(path: &str, script: &Script) -> anyhow::Result<(Ctx, Executor)> {
+pub fn load(path: &str, script: &mut Script) -> anyhow::Result<(Ctx, Executor)> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
     let config = bincode::config::standard();
     let save: SaveFile = bincode::serde::decode_from_std_read(&mut reader, config)?;
     let mut exe = Executor::new();
-    exe.restore(script, save.stack);
+    exe.preload_script(script);
+    exe.restore(save.stack);
     Ok((save.ctx, exe))
 }

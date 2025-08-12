@@ -2,3 +2,5 @@
 resolver = "3"
 members = [ "example-game","lumina-core", "lumina-skia-renderer", "viviscript-core"]
 
+[profile.bench]
+debug = true
