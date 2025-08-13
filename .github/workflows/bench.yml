@@ -3,18 +3,25 @@ name: benchmark
 on:
   workflow_dispatch:
     inputs:
-      run_parser:
-        description: 'Run parser benchmark'
-        required: false
-        type: boolean
-        default: true
-      run_executor:
-        description: 'Run executor benchmark'
-        required: false
-        type: boolean
-        default: true
+      bench:
+        description: 'Which benchmark to run'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - parse_bench
+          - executor_bench
+
   push:
-    branches: [main]
+    branches: [ main ]
+    paths:
+      - 'viviscript-core/src/**'
+      - 'viviscript-core/benches/**'
+      - 'viviscript-core/Cargo.toml'
+      - 'lumina-core/src/**'
+      - 'lumina-core/benches/**'
+      - 'lumina-core/Cargo.toml'
 
 permissions:
   contents: write
@@ -23,41 +30,36 @@ jobs:
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      parser: ${{ steps.filter.outputs.parser }}
-      executor: ${{ steps.filter.outputs.executor }}
+      viviscript: ${{ steps.changes.outputs.viviscript }}
+      lumina:     ${{ steps.changes.outputs.lumina }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
+
+      - name: Detect which crates changed
+        id: changes
+        uses: dorny/paths-filter@v3
         with:
           filters: |
-            parser:
-              - 'viviscript-core/src/parser.rs'
-              - 'viviscript-core/src/lexer.rs'
-              - 'viviscript-core/benches/parse_bench.rs'
-            executor:
-              - 'viviscript-core/src/executor/**'
-              - 'viviscript-core/benches/executor_bench.rs'
+            viviscript:
+              - 'viviscript-core/src/**'
+              - 'viviscript-core/benches/**'
+              - 'viviscript-core/Cargo.toml'
+            lumina:
+              - 'lumina-core/src/**'
+              - 'lumina-core/benches/**'
+              - 'lumina-core/Cargo.toml'
 
   bench:
     needs: detect-changes
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - bench: parse_bench
-            run: |
-              ${{ needs.detect-changes.outputs.parser == 'true' ||
-                  github.event.inputs.run_parser == 'true' }}
-          - bench: executor_bench
-            run: |
-              ${{ needs.detect-changes.outputs.executor == 'true' ||
-                  github.event.inputs.run_executor == 'true' }}
-
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
 
       - name: Cache benchmark baseline
         uses: actions/cache@v4
@@ -67,9 +69,21 @@ jobs:
           restore-keys: |
             criterion-baseline-${{ runner.os }}-
 
-      - name: Run ${{ matrix.bench }}
-        if: matrix.run == true
-        run: cargo bench --bench ${{ matrix.bench }}
+      - name: Run parse_bench
+        if: >
+          (github.event_name == 'workflow_dispatch' &&
+           contains(fromJSON('["all","parse_bench"]'), inputs.bench)) ||
+          (github.event_name == 'push' &&
+           needs.detect-changes.outputs.viviscript == 'true')
+        run: cargo bench --bench parse_bench
+
+      - name: Run executor_bench
+        if: >
+          (github.event_name == 'workflow_dispatch' &&
+           contains(fromJSON('["all","executor_bench"]'), inputs.bench)) ||
+          (github.event_name == 'push' &&
+           needs.detect-changes.outputs.lumina == 'true')
+        run: cargo bench --bench executor_bench
 
       - name: Deploy Criterion report to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
