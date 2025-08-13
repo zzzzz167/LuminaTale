@@ -68,7 +68,7 @@ jobs:
             criterion-baseline-${{ runner.os }}-
 
       - name: Run ${{ matrix.bench }}
-        if: matrix.run == 'true'
+        if: matrix.run == true
         run: cargo bench --bench ${{ matrix.bench }}
 
       - name: Deploy Criterion report to GitHub Pages
