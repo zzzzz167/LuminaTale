@@ -3,8 +3,14 @@ name = "example-game"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["tui"]
+tui = []
+skia = ["dep:lumina-skia-renderer"]
+
 [dependencies]
 viviscript-core = {path = "../viviscript-core"}
 lumina-core = {path = "../lumina-core"}
 log = "0.4.27"
 env_logger = "0.11.8"
+lumina-skia-renderer = { path = "../lumina-skia-renderer", optional = true }

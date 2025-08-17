@@ -3,7 +3,7 @@ use crate::renderer::Renderer;
 use crate::Ctx;
 use ratatui::text::Text;
 use ratatui::{
-    backend::{Backend, CrosstermBackend},
+    backend::{CrosstermBackend},
     crossterm::{
         event::{self, Event, KeyCode, KeyEventKind},
         execute,
