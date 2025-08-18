@@ -24,7 +24,10 @@ pub fn load(path: &str, script: &mut Script) -> anyhow::Result<(Ctx, Executor)> 
     let config = bincode::config::standard();
     let save: SaveFile = bincode::serde::decode_from_std_read(&mut reader, config)?;
     let mut exe = Executor::new();
-    exe.preload_script(script);
+
+    let mut dummy_ctx = Ctx::default();
+    
+    exe.preload_script(&mut dummy_ctx, script);
     exe.restore(save.stack);
     Ok((save.ctx, exe))
 }

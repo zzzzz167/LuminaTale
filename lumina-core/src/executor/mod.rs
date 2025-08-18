@@ -34,14 +34,12 @@ impl Executor {
         }
     }
 
-    pub fn preload_script(&mut self, script: &mut Script) {
-        // 1. 真正的 AST 预处理（拆分行、套隐式 label 等）
-        {
-            let mut dummy_ctx = Ctx::default();
-            preload(&mut dummy_ctx, script);
-        }
-
-        // 2. 建立 label → body 映射
+    pub fn preload_script(&mut self, ctx: &mut Ctx ,script: &mut Script) {
+        log::info!("Processing preload");
+        pre_choice_labels(script);
+        pre_narration_lines(&mut script.body);
+        pre_collect_characters(ctx, &script.body);
+        // 建立 label → body 映射
         self.label_map.clear();
         build_label_map(&script.body, &mut self.label_map);
     }
@@ -187,13 +185,6 @@ fn build_label_map(stmts: &[Stmt], map: &mut FxHashMap<String, Rc<[Stmt]>>) {
             _ => {}
         }
     }
-}
-
-fn preload(ctx: &mut Ctx, node: &mut Script) {
-    log::info!("Processing preload");
-    pre_collect_characters(ctx, &node.body);
-    pre_choice_labels(node);
-    pre_narration_lines(&mut node.body);
 }
 
 fn init_ctx_runtime(ctx: &mut Ctx) {

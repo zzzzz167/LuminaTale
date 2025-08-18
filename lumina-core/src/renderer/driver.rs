@@ -17,7 +17,7 @@ pub struct Driver<R: Renderer> {
 impl<R: Renderer> Driver<R> {
     pub fn new(ctx: &mut Ctx, mut script: Script, renderer: R) -> Self {
         let mut exe = Executor::new();
-        exe.preload_script(&mut script);
+        exe.preload_script(ctx, &mut script);
         exe.start(ctx, "init");
         panic::set_hook(Box::new(|info| {
             let msg = info
