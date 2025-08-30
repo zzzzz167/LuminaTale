@@ -1,7 +1,8 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use lumina_core::{config, runtime::Ctx, OutputEvent};
 use lumina_core::event::InputEvent;
-use lumina_core::renderer::driver::Driver;
+use lumina_core::renderer::driver::ExecutorHandle;
+use lumina_core::renderer::Renderer;
 use viviscript_core::{ast::Script, lexer::Lexer, parser::Parser};
 
 fn make_script(lines: usize) -> Script {
@@ -29,16 +30,19 @@ fn make_script(lines: usize) -> Script {
 }
 
 struct NullRenderer;
-impl lumina_core::renderer::Renderer for NullRenderer {
-    fn render(
-        &mut self,
-        out: &OutputEvent,
-        _ctx: &mut Ctx,
-    ) -> Option<InputEvent> {
-        match out {
-            OutputEvent::ShowChoice { .. } => Some(InputEvent::ChoiceMade { index: 0 }),
-            OutputEvent::ShowDialogue {..} | OutputEvent::ShowNarration {..} => Some(InputEvent::Continue),
-            _ => None,
+impl Renderer for NullRenderer {
+    fn run_event_loop(&mut self, ctx: &mut Ctx, script: Script) {
+        let mut driver = ExecutorHandle::new(ctx, script);
+
+        loop {
+            for out in ctx.drain() {
+                match out {
+                    OutputEvent::ShowChoice { .. } => driver.feed(ctx, InputEvent::ChoiceMade {index: 0}),
+                    OutputEvent::ShowDialogue {..} | OutputEvent::ShowNarration {..} => driver.feed(ctx, InputEvent::Continue),
+                    OutputEvent::End => return,
+                    _ => {}
+                }
+            }
         }
     }
 }
@@ -54,8 +58,8 @@ fn bench_executor(c: &mut Criterion) {
         b.iter_batched(||make_script(LINES),
         |sc| {
             let mut ctx = Ctx::default();
-            let mut drv = Driver::new(&mut ctx, sc, NullRenderer);
-            drv.run(&mut ctx);
+            let mut renderer = NullRenderer;
+            renderer.run_event_loop(&mut ctx, sc);
         },
         BatchSize::SmallInput);
     });

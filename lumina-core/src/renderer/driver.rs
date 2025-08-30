@@ -1,63 +1,33 @@
-use std::panic;
-use crate::{
-    event::{InputEvent, OutputEvent},
-    renderer::Renderer,
-    storager,
-    Ctx, Executor,
-};
 use viviscript_core::ast::Script;
+use crate::{storager, Ctx, Executor};
+use crate::event::InputEvent;
 
-
-pub struct Driver<R: Renderer> {
+pub struct ExecutorHandle{
     exe: Executor,
-    renderer: R,
     script: Script,
 }
 
-impl<R: Renderer> Driver<R> {
-    pub fn new(ctx: &mut Ctx, mut script: Script, renderer: R) -> Self {
+impl ExecutorHandle {
+    pub fn new(ctx: &mut Ctx, mut script: Script) -> Self {
         let mut exe = Executor::new();
         exe.preload_script(ctx, &mut script);
         exe.start(ctx, "init");
-        panic::set_hook(Box::new(|info| {
-            let msg = info
-                .payload()
-                .downcast_ref()
-                .unwrap_or(&"unknown panic payload");
-            let location = info.location().map_or("unknown location".to_string(), |l|{
-                format!("({}:{})", l.file(), l.line())
-            });
-            log::error!("{}{}", msg, location);
-            std::process::exit(1);
-        }));
-        Driver { exe, renderer, script }
+        Self { exe, script }
     }
-    pub fn run(&mut self, ctx: &mut Ctx) {
-        loop {
-            let waiting = self.exe.step(ctx);
-            for out in ctx.drain() {
-                if let Some(inp) = self.renderer.render(&out, ctx) {
-                    self.dispatch_input(ctx, inp);
-                }
-                if matches!(out, OutputEvent::End) {
-                    return;
-                }
-            }
-            if waiting {
-                if let Some(inp) = self.renderer.render(&OutputEvent::StepDone, ctx) {
-                    self.dispatch_input(ctx, inp);
-                }
-            }
-        }
+
+    #[inline]
+    pub fn step(&mut self, ctx: &mut Ctx) -> bool {
+        self.exe.step(ctx)
     }
-    
-    fn dispatch_input(&mut self, ctx: &mut Ctx, inp: InputEvent) {
-        match inp { 
+
+    #[inline]
+    pub fn feed(&mut self, ctx: &mut Ctx, ev: InputEvent) {
+        match ev {
             InputEvent::SaveRequest {slot} => {
                 log::info!("Try to save request slot: {}", slot);
                 storager::save(&format!("save{}.bin", slot), ctx.clone(), self.exe.clone())
                     .unwrap_or_else(|e| log::error!("save failed: {}", e));
-                self.dispatch_input(ctx, InputEvent::Continue);
+                self.exe.feed(InputEvent::Continue);
                 log::info!("Save finished");
             }
             InputEvent::LoadRequest { slot } => {
@@ -71,7 +41,7 @@ impl<R: Renderer> Driver<R> {
                     log::warn!("load failed");
                 }
             }
-            _ => self.exe.feed(inp),
+            _ => self.exe.feed(ev),
         }
     }
 }

@@ -1,25 +1,26 @@
-use crate::event::{InputEvent, OutputEvent};
-use crate::renderer::Renderer;
-use crate::Ctx;
-use ratatui::text::Text;
 use ratatui::{
-    backend::{CrosstermBackend},
+    backend::CrosstermBackend,
     crossterm::{
-        event::{self, Event, KeyCode, KeyEventKind},
-        execute,
-        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen}
+        terminal::{enable_raw_mode, disable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+        execute, event,
+        event::{Event, KeyEventKind, KeyCode}
     },
-    layout::{Constraint, Direction, Layout}
-    ,
-    text::Line,
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    text::{Line, Text},
+    layout::{Layout, Constraint, Direction},
+    widgets::{Block, Borders, Paragraph, ListItem, List},
     Terminal
 };
-use std::io::{self, Stdout};
+use std::{io::Stdout, io};
+use viviscript_core::ast::Script;
+use crate::{
+    Ctx, OutputEvent,
+    event::InputEvent,
+    renderer::{Renderer, driver::ExecutorHandle}
+};
 
 pub struct TuiRenderer {
     terminal: Terminal<CrosstermBackend<Stdout>>,
-    input_buffer: String,
+    input_buf: String,
     current_text: CurrentText,
 }
 
@@ -36,20 +37,20 @@ enum CurrentText {
 }
 
 impl CurrentText {
-    fn render(&self) -> Text<'static> {
+    fn to_text(&self) -> Text<'static> {
         match self {
             CurrentText::Empty => Text::raw(""),
             CurrentText::Narration(lines) => Text::raw(lines.clone()),
             CurrentText::Dialogue { name, content } => {
-                let mut lines: Vec<Line<'static>> = Vec::new();
+                let mut lines = Vec::new();
                 lines.push(Line::from(format!("「{}」", name)));
                 lines.push(Line::from(content.clone()));
                 Text::from(lines)
             }
             CurrentText::Choice { title, options } => {
-                let mut lines: Vec<Line<'static>> = Vec::new();
-                if let Some(tit) = title {
-                    lines.push(Line::from(tit.clone()));
+                let mut lines = Vec::new();
+                if let Some(t) = title {
+                    lines.push(Line::from(t.clone()));
                 }
                 for (idx, opt) in options.iter().enumerate() {
                     lines.push(Line::from(format!("  {}. {}", idx + 1, opt)));
@@ -71,7 +72,7 @@ impl TuiRenderer {
         let terminal = Terminal::new(backend)?;
         Ok(Self {
             terminal,
-            input_buffer: String::new(),
+            input_buf: String::new(),
             current_text: CurrentText::Empty,
         })
     }
@@ -80,31 +81,29 @@ impl TuiRenderer {
         if !event::poll(std::time::Duration::from_millis(50))? {
             return Ok(None);
         }
-        if let Event::Key(key) = event::read()? {
-            if key.kind != KeyEventKind::Press {
-                return Ok(None);
-            }
-            return Ok(match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => Some(InputEvent::Exit),
-                KeyCode::Char(c) => {
-                    self.input_buffer.push(c);
-                    None
-                }
-                KeyCode::Backspace => {
-                    self.input_buffer.pop();
-                    None
-                }
-                KeyCode::Enter => {
-                    // 把整行输入解析成命令，然后清空缓冲区
-                    let line = self.input_buffer.clone();
-                    self.input_buffer.clear();
-                    parse_command(&line)
-                }
-                _ => None,
-            });
+        let Event::Key(key) = event::read()? else { return Ok(None) };
+        if key.kind != KeyEventKind::Press {
+            return Ok(None);
         }
-        Ok(None)
+
+        Ok(match key.code {
+            KeyCode::Char('q') | KeyCode::Esc => Some(InputEvent::Exit),
+            KeyCode::Char(c) => {
+                self.input_buf.push(c);
+                None
+            }
+            KeyCode::Backspace => {
+                self.input_buf.pop();
+                None
+            }
+            KeyCode::Enter => {
+                let line = std::mem::take(&mut self.input_buf);
+                parse_command(&line)
+            }
+            _ => None,
+        })
     }
+
     fn draw(&mut self, ctx: &Ctx) -> io::Result<()> {
         self.terminal.draw(|f| {
             let size = f.area();
@@ -122,7 +121,7 @@ impl TuiRenderer {
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
                 .split(chunks[1]);
-            
+
             let dialog_area = bottom_main[0];
             let hist_area = bottom_main[1];
             let cmd_area = chunks[2];
@@ -164,12 +163,13 @@ impl TuiRenderer {
             let audio_paragraph = Paragraph::new(Text::from(audio_text)).block(audio_block);
             f.render_widget(audio_paragraph, right);
 
-            let dialog_block = Block::default()
-                .borders(Borders::ALL)
-                .title("Current");
-
-            let dialog_paragraph = Paragraph::new(self.current_text.render()).block(dialog_block).wrap(ratatui::widgets::Wrap { trim: false });
-            f.render_widget(dialog_paragraph, dialog_area);
+            let dialog_block = Block::default().borders(Borders::ALL).title("Current");
+            f.render_widget(
+                Paragraph::new(self.current_text.to_text())
+                    .block(dialog_block)
+                    .wrap(ratatui::widgets::Wrap { trim: false }),
+                dialog_area,
+            );
 
             let hist_block = Block::default()
                 .borders(Borders::ALL)
@@ -181,84 +181,63 @@ impl TuiRenderer {
                 .take(15)
                 .map(|rec| {
                     let speaker = rec.speaker.as_deref().unwrap_or("Narrator");
-                    
+
                     ListItem::new(format!("{}: {}", speaker, rec.text))
                 })
                 .collect();
             let hist_list = List::new(hist_items).block(hist_block);
             f.render_widget(hist_list, hist_area);
 
-            let cmd_block = Block::default()
-                .borders(Borders::ALL)
-                .title("Command");
-            let cmd_paragraph = Paragraph::new(format!("> {}", &self.input_buffer)).block(cmd_block);
-            f.render_widget(cmd_paragraph, cmd_area);
+            let cmd_block = Block::default().borders(Borders::ALL).title("Command");
+            f.render_widget(
+                Paragraph::new(format!("> {}", self.input_buf)).block(cmd_block),
+                cmd_area,
+            );
         })?;
+
         Ok(())
     }
 }
 
-fn parse_command(line: &str) -> Option<InputEvent> {
-    if let Ok(idx) = line.parse::<usize>() {
-        // 选项展示时是从 1 开始，所以减 1
-        return Some(InputEvent::ChoiceMade { index: idx.saturating_sub(1) });
-    }
-    
-    let parts: Vec<&str> = line.split_whitespace().collect();
-    match parts.get(0).map(|s| *s) {
-        Some("save") => {
-            if let Some(slot) = parts.get(1).and_then(|s| s.parse::<u32>().ok()) {
-                Some(InputEvent::SaveRequest { slot })
-            } else {
-                None
-            }
-        }
-        Some("load") => {
-            if let Some(slot) = parts.get(1).and_then(|s| s.parse::<u32>().ok()) {
-                Some(InputEvent::LoadRequest { slot })
-            } else {
-                None
-            }
-        }
-        Some("exit") | Some("quit") => Some(InputEvent::Exit),
-        Some("continue") | Some("c") |Some("")=> Some(InputEvent::Continue),
-        None => Some(InputEvent::Continue),
-        _ => None,
-    }
-}
-
 impl Renderer for TuiRenderer {
-    fn render(&mut self, out: &OutputEvent, ctx: &mut Ctx)  -> Option<InputEvent> {
-        match out {
-            OutputEvent::ShowNarration { lines } => {
-                self.current_text = CurrentText::Narration(lines.join("\n"));
-            }
-            OutputEvent::ShowDialogue { name, content } => {
-                self.current_text = CurrentText::Dialogue {
-                    name: name.clone(),
-                    content: content.clone(),
+    fn run_event_loop(&mut self, ctx: &mut Ctx, script: Script) {
+        let mut driver = ExecutorHandle::new(ctx, script);
+
+        loop {
+            let waiting = driver.step(ctx);
+
+            for out in ctx.drain() {
+                if matches!(out, OutputEvent::End) {
+                    return;
+                }
+                self.current_text = match out {
+                    OutputEvent::ShowNarration { lines } => {
+                        CurrentText::Narration(lines.join("\n"))
+                    }
+                    OutputEvent::ShowDialogue { name, content } => {
+                        CurrentText::Dialogue { name, content }
+                    }
+                    OutputEvent::ShowChoice { title, options } => {
+                        CurrentText::Choice { title, options }
+                    }
+                    _ => continue,
                 };
             }
-            OutputEvent::ShowChoice { title, options } => {
-                self.current_text = CurrentText::Choice {
-                    title: title.clone(),
-                    options: options.clone(),
-                };
+
+            if let Err(e) = self.draw(ctx) {
+                log::error!("TUI draw error: {}", e);
+                return;
             }
-            _ => {}
-        }
-        
-        if let Err(e) = self.draw(ctx) {
-            eprintln!("draw error: {e}");
-            return Some(InputEvent::Exit);
-        }
-        
-        match self.try_read_key() {
-            Ok(Some(ev)) => Some(ev),
-            Ok(None) => None,
-            Err(e) => {
-                eprintln!("key read error: {e}");
-                Some(InputEvent::Exit)
+
+            if waiting {
+                match self.try_read_key() {
+                    Ok(Some(ev)) => driver.feed(ctx, ev),
+                    Ok(None) => {}
+                    Err(e) => {
+                        log::error!("TUI key read error: {}", e);
+                        return;
+                    }
+                }
             }
         }
     }
@@ -268,5 +247,28 @@ impl Drop for TuiRenderer {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
         let _ = execute!(self.terminal.backend_mut(), LeaveAlternateScreen);
+    }
+}
+
+fn parse_command(line: &str) -> Option<InputEvent> {
+    let parts: Vec<&str> = line.split_whitespace().collect();
+    match parts.get(0).copied() {
+        Some("save") => parts
+            .get(1)
+            .and_then(|s| s.parse::<u32>().ok())
+            .map(|slot| InputEvent::SaveRequest { slot }),
+        Some("load") => parts
+            .get(1)
+            .and_then(|s| s.parse::<u32>().ok())
+            .map(|slot| InputEvent::LoadRequest { slot }),
+        Some("exit") | Some("quit") => Some(InputEvent::Exit),
+        Some("continue") | Some("c") | Some("") => Some(InputEvent::Continue),
+        None => Some(InputEvent::Continue),
+        _ => line
+            .parse::<usize>()
+            .ok()
+            .map(|idx| InputEvent::ChoiceMade {
+                index: idx.saturating_sub(1),
+            }),
     }
 }

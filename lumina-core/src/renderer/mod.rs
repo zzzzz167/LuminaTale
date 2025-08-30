@@ -1,9 +1,9 @@
 pub mod terminal;
 pub mod driver;
 
+use viviscript_core::ast::Script;
 use crate::Ctx;
-use crate::event::{InputEvent, OutputEvent};
 
 pub trait Renderer {
-    fn render(&mut self, out: &OutputEvent, ctx: &mut Ctx) -> Option<InputEvent>;
+    fn run_event_loop(&mut self, ctx: &mut Ctx, script: Script);
 }
