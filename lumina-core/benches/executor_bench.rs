@@ -35,6 +35,8 @@ impl Renderer for NullRenderer {
         let mut driver = ExecutorHandle::new(ctx, script);
 
         loop {
+            let _waiting = driver.step(ctx);
+            
             for out in ctx.drain() {
                 match out {
                     OutputEvent::ShowChoice { .. } => driver.feed(ctx, InputEvent::ChoiceMade {index: 0}),
