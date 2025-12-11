@@ -1,4 +1,5 @@
-mod renderer;
-mod vk_utils;
+pub mod assets;
+pub mod painter;
+pub mod renderer;
 
-pub use renderer::SkiaRenderer;
+pub mod vk_utils;

@@ -1,0 +1,17 @@
+character ch1 name="测试娘" image_tag="ch1"
+
+label init
+
+scene bg demo
+ch1: "我将出现在左边"
+show ch1 happy at left
+
+ch1: "我将出现在右边"
+show ch1 happy at right
+
+ch1: "我回到中间了"
+show ch1 happy at center
+
+ch1: "测试结束"
+
+enlb

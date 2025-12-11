@@ -8,8 +8,6 @@ use lumina_core::renderer::Renderer;
 #[cfg(feature = "tui")]
 use lumina_core::TuiRenderer;
 
-#[cfg(feature = "skia")]
-use lumina_skia_renderer::SkiaRenderer;
 
 fn init_logger() {
     // 1. 公共参数
@@ -64,7 +62,7 @@ fn main() {
     init_logger();
 
     log::info!("Starting Lumina runtime");
-    let s = fs::read_to_string("example-game/game/test.vivi").expect("Should not fail");
+    let s = fs::read_to_string("example-game/game/skia_renderer_test.vivi").expect("Should not fail");
     log::debug!("Loaded script: {} bytes", s.len());
     
     let lexer = Lexer::new(&s).run();
@@ -77,19 +75,17 @@ fn main() {
     }
     
     log::info!("Parsing complete");
-    
-    let mut ctx = Ctx::default();
+
 
     #[cfg(feature = "tui")] {
+        let mut ctx = Ctx::default();
         let mut renderer = TuiRenderer::new().expect("init TUI");
         renderer.run_event_loop(&mut ctx, ast);
     }
 
     #[cfg(feature = "skia")] {
-        let event_loop = SkiaRenderer::new();
-        let mut app = SkiaRenderer::default();
-        
-        event_loop.run_app(&mut app).unwrap();
+        let app = lumina_skia_renderer::renderer::SkiaRenderer::new(ast);
+        app.run();
     }
 
     log::info!("Game finished");
