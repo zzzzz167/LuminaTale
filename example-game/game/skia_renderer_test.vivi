@@ -12,6 +12,27 @@ show ch1 happy at right
 ch1: "我回到中间了"
 show ch1 happy at center
 
+choice "你的选择?"
+1: call one
+2: call two
+3: call three
+enco
+
 ch1: "测试结束"
 
+enlb
+
+label one
+show ch1 happy at left
+ch1: "你选择了1!"
+enlb
+
+label two
+show ch1 happy at right
+ch1: "你选择了2!"
+enlb
+
+label three
+show ch1 happy at center
+ch1: "你选择了3!"
 enlb

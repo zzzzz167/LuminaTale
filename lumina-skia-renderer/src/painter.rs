@@ -1,8 +1,9 @@
 use skia_safe::{Canvas, Color, FontStyle, Paint, Point, Rect};
 use skia_safe::font_style::{Slant, Weight, Width};
-use skia_safe::textlayout::{FontCollection, ParagraphBuilder, ParagraphStyle, TextStyle};
+use skia_safe::textlayout::{FontCollection, ParagraphBuilder, ParagraphStyle, TextAlign, TextStyle};
 use lumina_core::Ctx;
 use crate::assets::AssetManager;
+use crate::ui_state::{UiState, UiMode};
 
 pub struct Painter {
     assets: AssetManager,
@@ -21,11 +22,39 @@ impl Painter {
         }
     }
 
-    pub fn paint(&mut self, canvas: &Canvas, ctx: &Ctx, window_size: (f32, f32)) {
+    pub fn paint(&mut self, canvas: &Canvas, ctx: &Ctx, ui_state: &mut UiState, window_size: (f32, f32)) {
         let (w, h) = window_size;
 
         canvas.clear(Color::WHITE);
 
+        self.draw_layers(canvas, ctx, w, h);
+
+        match &mut ui_state.mode {
+            UiMode::Choice {title, options, hit_boxes, hover_index} => {
+                let mut mask = Paint::default();
+                mask.set_color(Color::from_argb(128, 0, 0, 0));
+                canvas.draw_rect(Rect::new(0.0, 0.0, w, h), &mask);
+
+                hit_boxes.clear();
+
+                self.draw_choice_menu(
+                    canvas,
+                    w, h,
+                    title.as_deref(),
+                    options,
+                    hit_boxes,
+                    *hover_index,
+                );
+            },
+
+            _ => {
+                self.draw_dialogue(canvas, ctx, w, h);
+            }
+        }
+
+    }
+
+    fn draw_layers(&mut self, canvas: &Canvas, ctx: &Ctx, w: f32, h: f32) {
         for layer_name in &ctx.layer_record.arrange {
             if let Some(sprites) = ctx.layer_record.layer.get(layer_name) {
                 for sprite in sprites {
@@ -82,45 +111,125 @@ impl Painter {
                 }
             }
         }
-
-        self.draw_ui(canvas, ctx, w, h);
     }
 
-    fn draw_ui(&mut self, canvas: &Canvas, ctx: &Ctx, w: f32, h: f32) {
+    fn draw_choice_menu(
+        &mut self,
+        canvas: &Canvas,
+        w: f32, h: f32,
+        title: Option<&str>,
+        options: &[String],
+        hit_boxes: &mut Vec<Rect>,
+        hover_index: Option<usize>
+    ) {
+        let btn_width = 500.0;
+        let btn_height = 70.0;
+        let gap = 20.0;
+
+        let total_h = options.len() as f32 * (btn_height + gap) - gap;
+        let start_y = (h - total_h) / 2.0;
+        let center_x = w / 2.0;
+
+        if let Some(t) = title {
+            // 简单绘制在菜单上方
+            let mut title_style = TextStyle::new();
+            title_style.set_color(Color::WHITE);
+            title_style.set_font_size(40.0);
+            title_style.set_font_style(FontStyle::new(Weight::BOLD, Width::NORMAL, Slant::Upright));
+
+            let mut pb = ParagraphBuilder::new(&ParagraphStyle::new(), &self.font_collection);
+            pb.push_style(&title_style);
+            pb.add_text(t);
+            let mut p = pb.build();
+            p.layout(w);
+            p.paint(canvas, Point::new((w - p.max_width()) / 2.0, start_y - 80.0));
+        }
+
+        for (i, opt_text) in options.iter().enumerate() {
+            let y = start_y + i as f32 * (btn_height + gap);
+            let rect = Rect::from_xywh(center_x - btn_width / 2.0, y, btn_width, btn_height);
+
+            // [关键] 将计算出的区域存入 hit_boxes
+            hit_boxes.push(rect);
+
+            let is_hover = hover_index == Some(i);
+
+            // 按钮背景
+            let mut paint = Paint::default();
+            paint.set_anti_alias(true);
+            if is_hover {
+                paint.set_color(Color::from_rgb(100, 149, 237)); // 悬停：矢车菊蓝
+            } else {
+                paint.set_color(Color::from_argb(220, 50, 50, 50)); // 普通：深灰
+            }
+            canvas.draw_round_rect(rect, 12.0, 12.0, &paint);
+
+            // 按钮描边
+            let mut stroke = Paint::default();
+            stroke.set_style(skia_safe::paint::Style::Stroke);
+            stroke.set_stroke_width(2.0);
+            stroke.set_color(if is_hover { Color::WHITE } else { Color::GRAY });
+            stroke.set_anti_alias(true);
+            canvas.draw_round_rect(rect, 12.0, 12.0, &stroke);
+
+            // 按钮文字 (居中)
+            let mut ts = TextStyle::new();
+            ts.set_color(Color::WHITE);
+            ts.set_font_size(28.0);
+
+            let mut ps = ParagraphStyle::new();
+            ps.set_text_align(TextAlign::Center); // 文本内部居中
+            ps.set_text_style(&ts);
+
+            let mut builder = ParagraphBuilder::new(&ps, &self.font_collection);
+            builder.push_style(&ts);
+            builder.add_text(opt_text);
+            let mut paragraph = builder.build();
+
+            paragraph.layout(btn_width);
+
+            // 计算文字垂直居中
+            let text_y = rect.y() + (btn_height - paragraph.height()) / 2.0;
+            paragraph.paint(canvas, Point::new(rect.x(), text_y));
+        }
+    }
+
+    fn draw_dialogue(&mut self, canvas: &Canvas, ctx: &Ctx, w: f32, h: f32) {
         if let Some(last_dialogue) = ctx.dialogue_history.last() {
             let ui_height = h * 0.3;
             let ui_rect = Rect::new(0.0, h - ui_height, w, h);
+
             let mut bg_paint = Paint::default();
             bg_paint.set_color(Color::from_argb(200, 0, 0, 0));
             canvas.draw_rect(ui_rect, &bg_paint);
 
-            let mut text_style = TextStyle::new();
-            text_style.set_color(Color::WHITE);
-            text_style.set_font_size(24.0);
-            text_style.set_font_style(FontStyle::new(Weight::NORMAL, Width::NORMAL, Slant::Upright));
+            let mut ts = TextStyle::new();
+            ts.set_color(Color::WHITE);
+            ts.set_font_size(24.0);
+            let mut ps = ParagraphStyle::new();
+            ps.set_text_style(&ts);
 
-            let mut para_style = ParagraphStyle::new();
-            para_style.set_text_style(&text_style);
-
+            // Speaker Name
             if let Some(name) = &last_dialogue.speaker {
-                let mut name_style = text_style.clone();
-                name_style.set_color(Color::YELLOW);
-                name_style.set_font_size(30.0);
+                let mut name_ts = ts.clone();
+                name_ts.set_color(Color::YELLOW);
+                name_ts.set_font_size(30.0);
 
-                let mut builder = ParagraphBuilder::new(&para_style, &self.font_collection);
-                builder.push_style(&name_style);
-                builder.add_text(name);
-                let mut paragraph = builder.build();
-                paragraph.layout(w);
-                paragraph.paint(canvas, Point::new(20.0, h - ui_height + 20.0));
+                let mut pb = ParagraphBuilder::new(&ps, &self.font_collection);
+                pb.push_style(&name_ts);
+                pb.add_text(name);
+                let mut p = pb.build();
+                p.layout(w);
+                p.paint(canvas, Point::new(40.0, h - ui_height + 30.0));
             }
 
-            let mut builder = ParagraphBuilder::new(&para_style, &self.font_collection);
-            builder.push_style(&text_style);
-            builder.add_text(&last_dialogue.text);
-            let mut paragraph = builder.build();
-            paragraph.layout(w - 80.0);
-            paragraph.paint(canvas, Point::new(40.0, h - ui_height + 70.0));
+            // Dialogue Text
+            let mut pb = ParagraphBuilder::new(&ps, &self.font_collection);
+            pb.push_style(&ts);
+            pb.add_text(&last_dialogue.text);
+            let mut p = pb.build();
+            p.layout(w - 100.0);
+            p.paint(canvas, Point::new(60.0, h - ui_height + 80.0));
         }
     }
 }

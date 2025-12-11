@@ -84,7 +84,7 @@ fn main() {
     }
 
     #[cfg(feature = "skia")] {
-        let app = lumina_skia_renderer::renderer::SkiaRenderer::new(ast);
+        let app = lumina_skia_renderer::SkiaRenderer::new(ast);
         app.run();
     }
 
