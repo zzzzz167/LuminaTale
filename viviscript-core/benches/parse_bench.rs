@@ -15,8 +15,8 @@ fn make_script(lines:usize) -> String {
             5 => buf.push_str(&format!("c{i}: \"Hello world {i}\"\n")),
             6 => {
                 buf.push_str(&format!("choice \"第{i}个选择\"\n"));
-                buf.push_str(&format!("选项A: jump label_a_{i}\n"));
-                buf.push_str(&format!("选项B: jump label_b_{i}\n"));
+                buf.push_str(&format!("\"选项A\": jump label_a_{i}\n"));
+                buf.push_str(&format!("\"选项B\": jump label_b_{i}\n"));
                 buf.push_str("enco\n");
             }
             _ => unreachable!(),
