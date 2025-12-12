@@ -93,6 +93,11 @@ pub enum Stmt {
         span: Span,
         msg: String,
     },
+    If {
+        span: Span,
+        branches: Vec<(String, Vec<Stmt>)>,
+        else_branch: Option<Vec<Stmt>>,
+    }
 }
 
 /// Identifies the speaker of a dialogue line.

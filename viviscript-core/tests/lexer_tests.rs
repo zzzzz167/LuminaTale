@@ -91,8 +91,8 @@ enlua
     fn choice_block() {
         let src = r#"
 choice
-    Yes:jump good_end
-    No:call bad_end
+    "Yes":jump good_end
+    "No":call bad_end
 enco"#;
         let got = lex(src);
         let expected = vec![

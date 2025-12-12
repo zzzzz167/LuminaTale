@@ -30,6 +30,10 @@ pub enum TokKind {
     Character,
     Scene, Show, Hide, Play, Stop, 
     Label, Choice, Lua, Jump, Call,
+
+    If, Else, Elif, EnIf,
+    Condition(String),
+
     EnChoice, EnLua, EnLabel,
     
     LuaBlock(String),
@@ -72,15 +76,14 @@ define_content_access!(
     Str(String),
     Ident(String),
     LuaBlock(String),
+    Condition(String),
+    Comment(String),
 );
 
 /// Lexical mode the lexer is currently in.
-enum Mode { Normal, Choice}
 
 /// All tokens that can be produced by the lexer.
 pub struct Lexer<'a> {
-    /// Original source text (kept for debugging).
-    src: &'a str,
     /// Character iterator with one-character look-ahead.
     chars: Peekable<Chars<'a>>,
     /// Current line number (1-based).
@@ -88,18 +91,15 @@ pub struct Lexer<'a> {
     /// Current column number (0-based).
     col: usize,
     /// Are we lexing inside a choice block?
-    mode: Mode,
     offset: usize,
 }
 
 impl<'a> Lexer<'a> {
     pub fn new(src: &'a str) -> Self {
         Lexer {
-            src,
             chars: src.chars().peekable(),
             line: 1,
             col: 0,
-            mode: Mode::Normal,
             offset: 0,
         }
     }
@@ -129,18 +129,6 @@ impl<'a> Lexer<'a> {
         let mut iter = self.chars.clone();
         iter.nth(n)
     }
-
-    /// Check whether the next characters *exactly* match `kw` and are followed
-    /// by a non-identifier character.
-    fn peek_keyword(&mut self, kw: &str) -> bool {
-        let mut it = self.chars.clone();
-        for ch in kw.chars() {
-            if it.next() != Some(ch) {
-                return false;
-            }
-        }
-        matches!(it.next(), None | Some(' ') | Some('\t') | Some('\n'))
-    }
     
     fn tok(&mut self,tok: TokKind, start: usize) -> Tok{
         Tok { tok, span: Span { start, end: self.offset, line: self.line } }
@@ -148,13 +136,6 @@ impl<'a> Lexer<'a> {
     
     fn tok_one_str (&mut self,tok: TokKind) -> Tok{
         Tok { tok, span: Span { start: self.offset, end: self.offset+1, line: self.line } }
-    }
-
-    /// Consume `kw` without any checks; caller must first call `peek_keyword`.
-    fn consume_keyword(&mut self, kw: &str) {
-        for _ in kw.chars() {
-            self.bump();
-        }
     }
 
     /// Discard spaces and tabs, but **stop at newline**.
@@ -260,9 +241,16 @@ impl<'a> Lexer<'a> {
             "lua" => TokKind::Lua,
             "jump" => TokKind::Jump,
             "call" => TokKind::Call,
+
+            "if" => TokKind::If,
+            "else" => TokKind::Else,
+            "elif" => TokKind::Elif,
+            "enif" => TokKind::EnIf,
+
             "enco" => TokKind::EnChoice,
             "enlb" => TokKind::EnLabel,
             "enlua" => TokKind::EnLua,
+
             "with" | "at" | "as"=> TokKind::Reserved(s),
             "loop" | "noloop" => TokKind::Flag(s),
             "volume" | "fade_in" | "fade_out" | "image_tag" | "name" | "voice_tag"=> {
@@ -335,6 +323,29 @@ impl<'a> Lexer<'a> {
         TokKind::Num(val)
     }
 
+    fn read_condition_line(&mut self) -> String {
+        let mut out = String::new();
+        self.skip_space_no_nl();
+
+        while let Some(c) = self.peek() {
+            if c == '\n' {
+                break;
+            }
+
+            if c == '-' && self.peek_nth(1) == Some('-') {
+                break;
+            }
+            out.push(self.bump().unwrap());
+        }
+
+        let trimmed = out.trim();
+        if let Some(stripped) = trimmed.strip_suffix(':') {
+            stripped.trim().to_string()
+        } else {
+            trimmed.to_string()
+        }
+    }
+
     /// Run the lexer to completion and return the full token stream.
     pub fn run(&mut self) -> Vec<Tok> {
         let mut tokens = Vec::new();
@@ -359,10 +370,7 @@ impl<'a> Lexer<'a> {
             }
             last_was_newline = false;
 
-            match self.mode {
-                Mode::Normal => self.normal(&mut tokens),
-                Mode::Choice => self.choice(&mut tokens),
-            }
+            self.normal(&mut tokens);
         }
         
         tokens.push(self.tok_one_str(TokKind::Eof));
@@ -399,18 +407,26 @@ impl<'a> Lexer<'a> {
                 tokens.push(Tok{tok: TokKind::Str(content),span:Span{start,end:self.offset - 1, line: self.line}});
             },
             ':' => {
+                let is_start_of_line = tokens.is_empty() ||
+                    matches!(tokens.last().map(|t| &t.tok), Some(TokKind::Newline));
                 tokens.push(self.tok_one_str(TokKind::Colon));
+
                 if self.peek_nth(1) == Some('"') && self.peek_nth(2) == Some('"') && self.peek_nth(3) == Some('"') {
                     for _ in 0..4 {self.bump();}
                     let start = self.offset;
                     let mut content = String::new();
                     content.push_str(&self.triple_quote());
                     tokens.push(self.tok(TokKind::Str(content), start)); 
-                } else {
-                    self.bump();
+                } else if is_start_of_line {
+                    self.bump(); // 吃掉冒号
                     let start = self.offset;
                     let content = self.colon_line();
-                    tokens.push(self.tok(TokKind::Str(content), start));
+
+                    if !content.is_empty() {
+                        tokens.push(self.tok(TokKind::Str(content), start));
+                    }
+                } else {
+                    self.bump();
                 }
             }
             '-' if self.peek_nth(1) == Some('-') => {
@@ -454,15 +470,21 @@ impl<'a> Lexer<'a> {
                 let start = self.offset;
                 let ch = self.bump().unwrap();
                 let tok = self.keyword_or_ident(ch);
+
+                let is_cond_kw = matches!(tok, TokKind::If|TokKind::Elif);
+
+                tokens.push(self.tok(tok.clone(), start));
+
                 if let TokKind::Lua = tok {
-                    tokens.push(self.tok(tok, start));
                     let content = self.lua_block();
                     tokens.push(self.tok(TokKind::LuaBlock(content),start + 4));
-                } else if let TokKind::Choice = tok {
-                    tokens.push(self.tok(tok, start));
-                    self.mode = Mode::Choice
-                }else {
-                    tokens.push(self.tok(tok, start));
+                } else if is_cond_kw {
+                    let cond_start = self.offset;
+                    let cond_str = self.read_condition_line();
+
+                    if !cond_str.is_empty() {
+                        tokens.push(self.tok(TokKind::Condition(cond_str), cond_start))
+                    }
                 }
             },
             _ => {
@@ -470,56 +492,5 @@ impl<'a> Lexer<'a> {
                 log::warn!("line {}: unexpected character '{}'", self.line, c);
             }
         }
-    }
-
-    /// Lexing rules when inside a choice block.
-    fn choice(&mut self, tokens: &mut Vec<Tok>) {
-        self.skip_space_no_nl();
-
-        // End of choice block?
-        if self.peek_keyword("enco") {
-            let start = self.offset;
-            self.consume_keyword("enco");
-            tokens.push(self.tok(TokKind::EnChoice,start));
-            self.mode = Mode::Normal;
-            return;
-        }
-
-        // Collect choice text until ':' or newline
-        let mut text = String::new();
-        let start = self.offset;
-        while let Some(c) = self.peek() {
-            if c == ':' { break; }
-            if c == '\n' {
-                tokens.push(Tok{tok: TokKind::Str(text.trim_end().to_owned()),span:Span{start,end:self.offset, line: self.line}});
-                tokens.push(self.tok_one_str(TokKind::Newline));
-                self.bump();
-                return;
-            }
-            text.push(self.bump().unwrap());
-        }
-        tokens.push(Tok{tok: TokKind::Str(text.trim_end().to_owned()),span:Span{start,end:self.offset,line: self.line}});
-
-        // Expect ':' after the text
-        if self.peek() == Some(':') {
-            tokens.push(self.tok_one_str(TokKind::Colon));
-            self.bump();
-        } else {
-            tokens.push(self.tok_one_str(TokKind::Newline));
-            return;
-        }
-
-        // Continue lexing with normal rules for the body of the choice
-        self.skip_space_no_nl();
-        while let Some(c) = self.peek() {
-            if c == '\n' {
-                tokens.push(self.tok_one_str(TokKind::Newline));
-                self.bump();
-                break;
-            }else {
-                self.normal(tokens)
-            }
-        }
-
     }
 }

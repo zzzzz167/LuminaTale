@@ -46,6 +46,10 @@ impl<'a> Parser<'a> {
             .unwrap_or(0)
     }
 
+    fn peek_nth(&self, n: usize) -> Option<&TokKind> {
+        self.toks.get(self.cursor + n).map(|t| &t.tok)
+    }
+
     /// Advances the cursor and returns the consumed token.
     fn bump(&mut self) -> &'a Tok {
         let tok = &self.toks[self.cursor];
@@ -162,6 +166,37 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_block(&mut self, terminators: &[TokKind]) -> Vec<Stmt> {
+        let mut body = Vec::new();
+        loop {
+            // 安全性检查
+            if self.at(TokKind::Eof) {
+                error!("Unexpected EOF inside block");
+                std::process::exit(1);
+            }
+
+            // 检查终止符
+            if let Some(tok) = self.peek() {
+                let is_term = terminators.iter().any(|t|
+                    std::mem::discriminant(t) == std::mem::discriminant(tok)
+                );
+                if is_term {
+                    return body;
+                }
+            }
+
+            // 解析下一条语句
+            // 注意：stmt() 内部会处理 Newline/Comment 并返回 None
+            if let Some(s) = self.stmt() {
+                body.push(s);
+            } else if self.status == Status::Stop {
+                // 如果 stmt 遇到了 EOF 并返回 None，且设置了 Stop
+                break;
+            }
+        }
+        body
+    }
+
     /// Entry-point: parses the entire token stream into a [`Script`].
     pub fn parse(mut self) -> Script {
         debug!("Starting parse");
@@ -182,6 +217,7 @@ impl<'a> Parser<'a> {
             Some(TokKind::Character) => Some(self.character()),
             Some(TokKind::Label) => Some(self.label()),
             Some(TokKind::Choice) => Some(self.choice()),
+            Some(TokKind::If) => Some(self.if_stmt()),
             Some(TokKind::Jump) => Some(self.jump()),
             Some(TokKind::Call) => Some(self.call()),
             Some(TokKind::Colon) => Some(self.narration()),
@@ -250,32 +286,37 @@ impl<'a> Parser<'a> {
     fn choice(&mut self) -> Stmt {
         let span = self.span();
         self.expect(TokKind::Choice);
-        let title = if self.at(TokKind::Str("".into())) {
-            Some(self.string())
-        } else {
-            None
-        };
+
+        self.skip_trivia();
+
+        let mut title = None;
+        if let Some(TokKind::Str(_)) = self.peek() {
+            if self.peek_nth(1) != Some(&TokKind::Colon) {
+                title = Some(self.string());
+            }
+        }
 
         let mut arms = Vec::new();
 
-        while !self.consume(TokKind::EnChoice) {
+        while !self.at(TokKind::EnChoice) {
             self.skip_trivia();
-            let mut body = Vec::new();
-            let text = self.string();
-            self.expect(TokKind::Colon);
-            match self.stmt() {
-                Some(s) => body.push(s),
-                None => {}
-            }
-            
-            if body.is_empty() {
-                error!("line {}: empty choice arm", self.peek_line());
+            if self.at(TokKind::EnChoice) { break; }
+
+            let text = if self.at(TokKind::Str("".into())) {
+                self.string()
+            } else {
+                let line = self.peek_line();
+                error!("line {}: Expected string literal for choice option, got {:?}", line, self.peek());
                 std::process::exit(1);
-            }
+            };
+
+            self.expect(TokKind::Colon);
+            let body = self.parse_block(&[TokKind::Str("".into()), TokKind::EnChoice]);
 
             arms.push(ChoiceArm { text, body });
-            self.skip_trivia();
         }
+
+        self.expect(TokKind::EnChoice);
         Stmt::Choice { span, title, arms }
     }
 
@@ -347,8 +388,10 @@ impl<'a> Parser<'a> {
         let span = self.span();
         self.expect(TokKind::Colon);
         let mut lines = Vec::new();
-        for i in self.string().trim().lines() {
-            lines.push(i.to_string());
+        if self.at(TokKind::Str("".into())) {
+            for i in self.string().trim().lines() {
+                lines.push(i.to_string());
+            }
         }
         Stmt::Narration { span, lines }
     }
@@ -595,5 +638,48 @@ impl<'a> Parser<'a> {
             self.expect_any([TokKind::Eof,TokKind::Newline]);
         }
         Stmt::Hide {span, target}
+    }
+
+    fn if_stmt(&mut self) -> Stmt {
+        let span = self.span();
+        self.expect(TokKind::If);
+
+        let mut branches = Vec::new();
+
+        let cond = match &self.bump().tok {
+            TokKind::Condition(s) => s.clone(),
+            _ => {
+                error!("line {}: Expected condition after 'if'", span.line);
+                std::process::exit(1);
+            }
+        };
+
+        let body = self.parse_block(&[TokKind::Elif, TokKind::Else, TokKind::EnIf]);
+        branches.push((cond, body));
+
+        while self.at(TokKind::Elif) {
+            self.bump();
+            let cond = match &self.bump().tok {
+                TokKind::Condition(s) => s.clone(),
+                _ => {
+                    error!("Expected condition after 'elif'");
+                    std::process::exit(1);
+                }
+            };
+            let body = self.parse_block(&[TokKind::Elif, TokKind::Else, TokKind::EnIf]);
+            branches.push((cond, body));
+        }
+
+        let mut else_branch = None;
+        if self.consume(TokKind::Else) {
+            if self.at(TokKind::Colon) { self.bump(); }
+
+            let body = self.parse_block(&[TokKind::EnIf]);
+            else_branch = Some(body);
+        }
+
+        self.expect(TokKind::EnIf);
+
+        Stmt::If { span, branches, else_branch }
     }
 }
