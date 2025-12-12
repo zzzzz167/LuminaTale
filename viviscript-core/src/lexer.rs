@@ -407,8 +407,10 @@ impl<'a> Lexer<'a> {
                 tokens.push(Tok{tok: TokKind::Str(content),span:Span{start,end:self.offset - 1, line: self.line}});
             },
             ':' => {
-                let is_start_of_line = tokens.is_empty() ||
-                    matches!(tokens.last().map(|t| &t.tok), Some(TokKind::Newline));
+                let last_tok = tokens.last().map(|t| &t.tok);
+                let is_start_of_line = tokens.is_empty() || matches!(last_tok, Some(TokKind::Newline));
+                let is_after_ident = matches!(last_tok, Some(TokKind::Ident(_)));
+
                 tokens.push(self.tok_one_str(TokKind::Colon));
 
                 if self.peek_nth(1) == Some('"') && self.peek_nth(2) == Some('"') && self.peek_nth(3) == Some('"') {
@@ -417,7 +419,7 @@ impl<'a> Lexer<'a> {
                     let mut content = String::new();
                     content.push_str(&self.triple_quote());
                     tokens.push(self.tok(TokKind::Str(content), start)); 
-                } else if is_start_of_line {
+                } else if is_start_of_line || is_after_ident {
                     self.bump(); // 吃掉冒号
                     let start = self.offset;
                     let content = self.colon_line();

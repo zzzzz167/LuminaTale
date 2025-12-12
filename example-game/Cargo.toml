@@ -11,6 +11,6 @@ skia = ["dep:lumina-skia-renderer"]
 [dependencies]
 viviscript-core = {path = "../viviscript-core"}
 lumina-core = {path = "../lumina-core"}
-log = "0.4.27"
+log = "0.4.29"
 env_logger = "0.11.8"
 lumina-skia-renderer = { path = "../lumina-skia-renderer", optional = true }

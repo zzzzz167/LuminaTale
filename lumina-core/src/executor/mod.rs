@@ -4,20 +4,21 @@ mod walk;
 
 use std::rc::Rc;
 use rustc_hash::FxHashMap;
-use crate::runtime::Ctx;
-use viviscript_core::lexer::Span;
 use mlua::Lua;
 use viviscript_core::ast::{Stmt, Script};
 use frame::Frame;
 use call_stack::CallStack;
+use crate::runtime::Ctx;
 use crate::event::{OutputEvent, InputEvent};
 use crate::executor::walk::{walk_stmt, NextAction, StmtEffect};
+use crate::lua_glue::{self, CommandBuffer, LuaCommand};
 use crate::storager::types::FrameSnapshot;
 
 #[derive(Debug, Clone)]
 pub struct Executor {
     call_stack: CallStack,
     lua: Lua,
+    cmd_buffer: CommandBuffer,
     pending_choice: Option<Vec<Vec<Stmt>>>,
     pause: bool,
     label_map: FxHashMap<String, Rc<[Stmt]>>,
@@ -25,9 +26,13 @@ pub struct Executor {
 
 impl Executor {
     pub fn new() -> Self{
+        let lua = Lua::new();
+        let cmd_buffer = lua_glue::init_lua(&lua);
+
         Executor {
             call_stack: CallStack::default(),
-            lua:Lua::new(),
+            lua,
+            cmd_buffer,
             pending_choice: None,
             pause: false,
             label_map: FxHashMap::default(),
@@ -36,7 +41,6 @@ impl Executor {
 
     pub fn preload_script(&mut self, ctx: &mut Ctx ,script: &mut Script) {
         log::info!("Processing preload");
-        pre_choice_labels(script);
         pre_narration_lines(&mut script.body);
         pre_collect_characters(ctx, &script.body);
         // 建立 label → body 映射
@@ -52,17 +56,18 @@ impl Executor {
     pub fn feed(&mut self, ev: InputEvent) {
         match ev {
             InputEvent::ChoiceMade { index } => {
-                if let Some(arms) = self.pending_choice.take() {
-                    let frame = self.call_stack.top_mut().unwrap();
-                    frame.advance();
-                    let label = arms[index].clone();
-                    if label.len() == 1{
-                        match &label[0] {
-                            Stmt::Label {id, body,..}=>{
-                                self.call_stack.push(Frame::new(id.to_string(),body.to_vec(),0));
-                            },
-                            _ => {}
-                        }
+                if let Some(mut arms) = self.pending_choice.take() {
+                    if index < arms.len() {
+                        let selected_body = arms.remove(index);
+
+                        let frame = self.call_stack.top_mut().unwrap();
+                        frame.advance();
+
+                        let return_frame = Frame::new(frame.name.clone(), frame.stmts.clone(), frame.pc);
+                        self.call_stack.pop();
+                        self.call_stack.push(return_frame);
+
+                        self.call_stack.push(Frame::new("__choice_block__".to_string(), selected_body, 0));
                     }
                 }
             },
@@ -95,17 +100,23 @@ impl Executor {
     pub fn restore(&mut self, snap: Vec<FrameSnapshot>) {
         self.call_stack.clear();
         for fs in snap {
-            let body = self.label_body(&fs.label)
-                .unwrap_or_else(|| panic!("label {} not found", fs.label));
-            if fs.pc > body.len() {
-                panic!("saved pc {} out of range for label {}", fs.pc, fs.label);
+            if let Some(body) = self.label_body(&fs.label) {
+                if fs.pc > body.len() {
+                    panic!("saved pc {} out of range for label {}", fs.pc, fs.label);
+                }
+                let frame = Frame::new(fs.label, body, fs.pc);
+                self.call_stack.push(frame);
+            } else {
+                log::warn!("Cannot restore frame {}, label not found (dynamic block?)", fs.label);
             }
-            let frame = Frame::new(fs.label,body, fs.pc);
-            self.call_stack.push(frame);
         }
     }
 
     pub fn step(&mut self, ctx: &mut Ctx) -> bool {
+        if self.process_lua_commands(ctx) {
+            return false;
+        }
+
         if self.pending_choice.is_some() || self.pause {
             return true;
         }
@@ -124,6 +135,28 @@ impl Executor {
 
     fn label_body(&self, name: &str) -> Option<&[Stmt]> {
         self.label_map.get(name).map(|rc| rc.as_ref())
+    }
+
+    fn process_lua_commands(&mut self, _ctx: &mut Ctx) -> bool {
+        let cmds = self.cmd_buffer.drain();
+        if cmds.is_empty() { return false; }
+        for cmd in cmds {
+            match cmd {
+                LuaCommand::Jump(target) => {
+                    log::info!("Lua Jump -> {}", target);
+                    self.perform_jump(&target);
+                },
+            }
+        }
+        true
+    }
+
+    fn perform_jump(&mut self, label: &str) {
+        let body = self.label_body(label)
+            .unwrap_or_else(|| panic!("label {} not found", label))
+            .to_vec();
+        self.call_stack.clear();
+        self.call_stack.push(Frame::new(label.to_string(), body, 0));
     }
     
     fn exec_current(&mut self, ctx: &mut Ctx) {
@@ -148,12 +181,7 @@ impl Executor {
                 self.pause = true;
             }
             NextAction::Jump(label) =>{
-                let body = self
-                    .label_body(&label)
-                    .unwrap_or_else(|| panic!("label {} not found", label))
-                    .to_vec();
-                self.call_stack.clear();
-                self.call_stack.push(Frame::new(label,body, 0));
+                self.perform_jump(&label);
             },
             NextAction::Call(target) => {
                 let body = self
@@ -165,6 +193,15 @@ impl Executor {
                 self.call_stack.pop();
                 self.call_stack.push(return_frame);
                 self.call_stack.push(Frame::new(target,body, 0));
+            },
+            NextAction::EnterBlock(stmts) => {
+                let frame = self.call_stack.top_mut().unwrap();
+                let return_frame = Frame::new(frame.name.clone(), frame.stmts.clone(), frame.pc + 1);
+
+                self.call_stack.pop();
+                self.call_stack.push(return_frame);
+
+                self.call_stack.push(Frame::new("__if_block__".to_string(), stmts, 0));
             }
         }
     }
@@ -180,6 +217,14 @@ fn build_label_map(stmts: &[Stmt], map: &mut FxHashMap<String, Rc<[Stmt]>>) {
             Stmt::Choice { arms, .. } => {
                 for arm in arms {
                     build_label_map(&arm.body, map);
+                }
+            }
+            Stmt::If { branches, else_branch, .. } => {
+                for (_, body) in branches {
+                    build_label_map(body, map);
+                }
+                if let Some(body) = else_branch {
+                    build_label_map(body, map);
                 }
             }
             _ => {}
@@ -214,34 +259,6 @@ fn pre_collect_characters(ctx: &mut Ctx, list: &[Stmt]) {
     }
 }
 
-fn pre_choice_labels(script: &mut Script) {
-    let mut seq = 0usize;
-    for stmt in &mut script.body {
-        if let Stmt::Label {body, ..} = stmt {
-            preprocess_in_body(body,&mut seq);
-        }
-    }
-
-    fn preprocess_in_body(body: &mut Vec<Stmt>, seq: &mut usize) {
-        for stmt in body {
-            match stmt {
-                Stmt::Choice {arms, ..}=> {
-                    for (idx, arm) in arms.iter_mut().enumerate() {
-                        let label = format!("__choice_{}_{}", *seq, idx);
-                        let old_body = std::mem::take(&mut arm.body);
-                        arm.body = vec![Stmt::Label {
-                            span: Span {start:0, end:0, line:0},
-                            id: label,
-                            body: old_body,
-                        }]
-                    }
-                    *seq += 1;
-                },
-                _ => {}
-            }
-        }
-    }
-}
 
 fn pre_narration_lines(body: &mut Vec<Stmt>) {
     let mut new_body = Vec::new();
@@ -261,6 +278,15 @@ fn pre_narration_lines(body: &mut Vec<Stmt>) {
                     pre_narration_lines(&mut arm.body);
                 }
                 new_body.push(Stmt::Choice { span, title, arms });
+            }
+            Stmt::If { span, mut branches, mut else_branch } => {
+                for (_, body) in &mut branches {
+                    pre_narration_lines(body);
+                }
+                if let Some(body) = &mut else_branch {
+                    pre_narration_lines(body);
+                }
+                new_body.push(Stmt::If { span, branches, else_branch });
             }
             _ => new_body.push(stmt),
         }

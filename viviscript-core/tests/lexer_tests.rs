@@ -146,4 +146,16 @@ enco"#;
         // 仅检查能解析的部分；异常字符会留下 warning，但 token 流仍继续。
         assert_lex("scene ^ hide", vec![TokKind::Scene, TokKind::Hide]);
     }
+
+    #[test]
+    fn character_definition() {
+        assert_lex(
+            "ch1: hello",
+            vec![
+                TokKind::Ident("ch1".into()),
+                TokKind::Colon,
+                TokKind::Str("hello".into()),
+            ],
+        );
+    }
 }

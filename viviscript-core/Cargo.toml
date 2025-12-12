@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 unicode-xid = "0.2.6"
 regex = "1.11.1"
-log = "0.4.27"
+log = "0.4.29"
 
 [dev-dependencies]
 criterion = {version = "0.7.0", features = ["html_reports"]}

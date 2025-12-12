@@ -2,6 +2,7 @@ use std::ops::Add;
 use crate::runtime::Ctx;
 use crate::event::OutputEvent;
 use crate::runtime::assets::{Audio, DialogueRecord, Sprite};
+use crate::lua_glue;
 use crate::config;
 use viviscript_core::ast::{Stmt, AudioAction, ShowAttr, Transition};
 use mlua::Lua;
@@ -18,7 +19,8 @@ pub enum NextAction {
     Jump(String),
     Call(String),
     WaitChoice(Vec<Vec<Stmt>>),
-    WaitInput
+    WaitInput,
+    EnterBlock(Vec<Stmt>),
 }
 pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
     log::trace!("walk_stmt: {:?}", stmt);
@@ -184,7 +186,29 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
             let bodies: Vec<Vec<Stmt>> = arms.iter().map(|a| a.body.clone()).collect();
             ctx.push(OutputEvent::ShowChoice { title: title.clone(), options });
             NextAction::WaitChoice(bodies)
-        }
+        },
+        Stmt::If {branches, else_branch, ..} => {
+          let mut matched_body = None;
+
+            for (cond_str, body) in branches {
+                if lua_glue::evel_bool(lua, cond_str) {
+                    matched_body = Some(body.clone());
+                    break
+                }
+            }
+
+            if matched_body.is_none(){
+                if let Some(body) = else_branch {
+                    matched_body = Some(body.clone())
+                }
+            }
+
+            if let Some(body) = matched_body{
+                NextAction::EnterBlock(body)
+            }else {
+                NextAction::Continue
+            }
+        },
         Stmt::Jump {target,..} => NextAction::Jump(target.clone()),
         Stmt::Call {target,..} => NextAction::Call(target.clone()),
         _=> {NextAction::Continue}

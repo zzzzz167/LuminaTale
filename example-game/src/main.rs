@@ -62,7 +62,7 @@ fn main() {
     init_logger();
 
     log::info!("Starting Lumina runtime");
-    let s = fs::read_to_string("example-game/game/skia_renderer_test.vivi").expect("Should not fail");
+    let s = fs::read_to_string("example-game/game/test_if.vivi").expect("Should not fail");
     log::debug!("Loaded script: {} bytes", s.len());
     
     let lexer = Lexer::new(&s).run();
