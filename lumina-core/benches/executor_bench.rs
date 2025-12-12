@@ -18,7 +18,7 @@ fn make_script(lines: usize) -> Script {
             3 => buf.push_str(&format!("play music bgm{i} volume=0.7 loop\n")),
             4 => buf.push_str(&format!("hide spr{i}\n")),
             5 => buf.push_str(&format!("ch2: dialogue {i}\n")),
-            6 => buf.push_str("choice test\n 0: call empty\n 1: call empty\nenco\n"),
+            6 => buf.push_str("choice \"test\"\n \"0\": call empty\n \"1\": call empty\nenco\n"),
             7 => buf.push_str(&format!("call empty {i}\n")),
             _ => unreachable!(),
         }
