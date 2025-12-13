@@ -317,7 +317,7 @@ impl<'a> Parser<'a> {
         }
 
         self.expect(TokKind::EnChoice);
-        Stmt::Choice { span, title, arms }
+        Stmt::Choice { span, title, arms, id: None }
     }
 
     /// Parses a character statement.
@@ -680,6 +680,6 @@ impl<'a> Parser<'a> {
 
         self.expect(TokKind::EnIf);
 
-        Stmt::If { span, branches, else_branch }
+        Stmt::If { span, branches, else_branch, id: None}
     }
 }

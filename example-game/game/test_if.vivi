@@ -1,0 +1,35 @@
+character ch1 name="测试娘" image_tag="ch1"
+
+label init
+    scene bg demo
+    :这是一些测试
+    ch1: "请做出你的选择..."
+    $ score = 0
+    choice "好感度"
+        "加5":
+            $ score = score + 5
+        "加10":
+            $ score = score + 10
+        "保持不变":
+            $ score = score
+    enco
+
+    $ print(score)
+
+    if score == 5
+        ch1: "我猜你选的第一个选项"
+    elif score == 10
+        ch1: "我猜你选的第二个选项"
+     else
+        ch1: "你进入了存档测试分支"
+        ch1: "请试试在这里存档吧"
+        ch1: "成功了吗"
+        $ lumina.jump("test")
+    enif
+
+    : 从未进入测试分支
+enlb
+
+label test
+: wow真的成功了
+enlb

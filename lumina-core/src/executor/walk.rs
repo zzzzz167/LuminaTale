@@ -18,9 +18,9 @@ pub enum NextAction {
     Continue,
     Jump(String),
     Call(String),
-    WaitChoice(Vec<Vec<Stmt>>),
+    WaitChoice(Vec<(String, Vec<Stmt>)>),
     WaitInput,
-    EnterBlock(Vec<Stmt>),
+    EnterBlock(String, Vec<Stmt>),
 }
 pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
     log::trace!("walk_stmt: {:?}", stmt);
@@ -181,31 +181,42 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
             lua.load(code).exec().unwrap_or_else(|e| log::error!("Lua: {}", e));
             NextAction::Continue
         },
-        Stmt::Choice {title, arms, ..}=>{
-            let options: Vec<String> = arms.iter().map(|a| a.text.clone()).collect();
-            let bodies: Vec<Vec<Stmt>> = arms.iter().map(|a| a.body.clone()).collect();
-            ctx.push(OutputEvent::ShowChoice { title: title.clone(), options });
-            NextAction::WaitChoice(bodies)
-        },
-        Stmt::If {branches, else_branch, ..} => {
-          let mut matched_body = None;
+        Stmt::Choice {title, arms,id ,..}=>{
+            let base_id = id.as_ref().expect("AST not preprocessed! Call preload_script first.");
 
-            for (cond_str, body) in branches {
+            let options: Vec<String> = arms.iter().map(|a| a.text.clone()).collect();
+
+            let arms_data: Vec<(String, Vec<Stmt>)> = arms.iter().enumerate().map(|(idx, a)| {
+                let arm_id = format!("{}_opt{}", base_id, idx);
+                (arm_id, a.body.clone())
+            }).collect();
+
+            ctx.push(OutputEvent::ShowChoice { title: title.clone(), options });
+            NextAction::WaitChoice(arms_data)
+        },
+        Stmt::If {branches, else_branch, id, ..} => {
+            let base_id = id.as_ref().expect("AST not preprocessed! Call preload_script first.");
+
+            let mut matched = None;
+
+            for (idx, (cond_str, body)) in branches.iter().enumerate() {
                 if lua_glue::evel_bool(lua, cond_str) {
-                    matched_body = Some(body.clone());
+                    let block_id = format!("{}_b{}", base_id, idx);
+                    matched = Some((block_id, body.clone()));
                     break
                 }
             }
 
-            if matched_body.is_none(){
+            if matched.is_none() {
                 if let Some(body) = else_branch {
-                    matched_body = Some(body.clone())
+                    let block_id = format!("{}_else", base_id);
+                    matched = Some((block_id, body.clone()));
                 }
             }
 
-            if let Some(body) = matched_body{
-                NextAction::EnterBlock(body)
-            }else {
+            if let Some((bid, body)) = matched {
+                NextAction::EnterBlock(bid, body)
+            } else {
                 NextAction::Continue
             }
         },

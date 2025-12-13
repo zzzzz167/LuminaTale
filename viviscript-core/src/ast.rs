@@ -33,6 +33,7 @@ pub enum Stmt {
         span: Span,
         title: Option<String>,
         arms: Vec<ChoiceArm>,
+        id: Option<String>,
     },
     /// Unconditional jump to another label.
     Jump {
@@ -97,6 +98,7 @@ pub enum Stmt {
         span: Span,
         branches: Vec<(String, Vec<Stmt>)>,
         else_branch: Option<Vec<Stmt>>,
+        id: Option<String>,
     }
 }
 
