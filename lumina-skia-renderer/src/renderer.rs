@@ -2,6 +2,7 @@ use crate::painter::Painter;
 use crate::vk_utils::context::VulkanRenderContext;
 use crate::vk_utils::renderer::VulkanRenderer;
 use crate::ui_state::{UiMode, UiState};
+use crate::animator::SceneAnimator;
 
 use winit::{
     event_loop::{ControlFlow, EventLoop, ActiveEventLoop},
@@ -11,6 +12,7 @@ use winit::{
     keyboard::{PhysicalKey, KeyCode}
 };
 use std::sync::Arc;
+use std::time::Instant;
 use skia_safe::{Contains, Point};
 
 use viviscript_core::ast::Script;
@@ -28,6 +30,9 @@ pub struct SkiaRenderer {
     driver: Option<ExecutorHandle>,
     init_script: Option<Script>,
 
+    animator: SceneAnimator,
+    last_frame: Instant,
+
     cursor_pos: Point,
 }
 
@@ -41,6 +46,8 @@ impl SkiaRenderer {
             ctx: Ctx::default(),
             driver: None,
             init_script: Some(script),
+            animator: SceneAnimator::new(),
+            last_frame: Instant::now(),
             cursor_pos: Point::new(0.0, 0.0),
         }
     }
@@ -61,8 +68,15 @@ impl SkiaRenderer {
 impl ApplicationHandler for SkiaRenderer {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("LuminaTale Skia")).unwrap());
-        self.renderer = Some(self.render_ctx.renderer_for_window(event_loop, window.clone()));
 
+        let size = window.inner_size();
+        let scale_factor = window.scale_factor();
+        let logical_size = size.to_logical::<f32>(scale_factor);
+
+        log::info!("Window Init: Physical {:?}, Logical {:?}", size, logical_size);
+        self.animator.resize(logical_size.width, logical_size.height);
+
+        self.renderer = Some(self.render_ctx.renderer_for_window(event_loop, window.clone()));
         if let Some(script) = self.init_script.take() {
             log::info!("Initializing Game Executor...");
             self.driver = Some(ExecutorHandle::new(&mut self.ctx, script));
@@ -73,9 +87,14 @@ impl ApplicationHandler for SkiaRenderer {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
 
-            WindowEvent::Resized(_) => {
+            WindowEvent::Resized(size) => {
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer.invalidate_swapchain();
+
+                    let scale_factor = renderer.window.scale_factor();
+                    let logical_size = size.to_logical::<f32>(scale_factor);
+
+                    self.animator.resize(logical_size.width, logical_size.height);
                     self.request_redraw();
                 }
             }
@@ -83,6 +102,10 @@ impl ApplicationHandler for SkiaRenderer {
             WindowEvent::RedrawRequested => {
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer.prepare_swapchain();
+
+                    let now = Instant::now();
+                    let dt = now.duration_since(self.last_frame).as_secs_f32();
+                    self.last_frame = now;
 
                     // --- 游戏逻辑步进 ---
                     if let Some(driver) = self.driver.as_mut() {
@@ -95,6 +118,56 @@ impl ApplicationHandler for SkiaRenderer {
                         // 处理非视觉事件 (音频等)
                         for event in self.ctx.drain() {
                             match event {
+                                OutputEvent::NewSprite { target, transition } => {
+                                    let texture_name = self.ctx.characters.get(&target)
+                                        .and_then(|ch| ch.image_tag.clone())
+                                        .unwrap_or_else(|| target.clone());
+
+                                    // 查找位置信息
+                                    let mut pos_str = None;
+                                    if let Some(layer) = self.ctx.layer_record.layer.get("master") {
+                                        if let Some(sprite) = layer.iter().find(|s| s.target == target) {
+                                            pos_str = sprite.position.as_deref();
+                                        }
+                                    }
+
+                                    // 传递: id=target, texture=texture_name
+                                    self.animator.handle_new_sprite(target, texture_name, transition, pos_str);
+                                },
+                                OutputEvent::UpdateSprite { target, transition } => {
+                                    let mut pos_str = None;
+                                    let mut new_attrs = None;
+
+                                    if let Some(layer) = self.ctx.layer_record.layer.get("master") {
+                                        if let Some(sprite) = layer.iter().find(|s| s.target == target) {
+                                            pos_str = sprite.position.as_deref();
+                                            new_attrs = Some(sprite.attrs.clone());
+                                        }
+                                    }
+
+                                    self.animator.handle_update_sprite(target, transition, pos_str, new_attrs);
+                                },
+                                OutputEvent::HideSprite { target, transition } => {
+                                    self.animator.handle_hide_sprite(target, transition);
+                                },
+
+                                OutputEvent::NewScene { transition } => {
+                                    let mut bg_name = None;
+
+                                    if let Some(layer) = self.ctx.layer_record.layer.get("master") {
+                                        if let Some(bg) = layer.first() {
+                                            let mut full_name = bg.target.clone();
+                                            if !bg.attrs.is_empty() {
+                                                full_name.push('_');
+                                                full_name.push_str(&bg.attrs.join("_"));
+                                            }
+                                            bg_name = Some(full_name);
+                                        }
+                                    }
+
+                                    self.animator.handle_new_scene(bg_name, transition);
+                                },
+
                                 OutputEvent::ShowChoice { title, options } => {
                                     log::info!("UI: Entering Choice Mode");
                                     self.ui_state.set_choices(title, options);
@@ -114,16 +187,20 @@ impl ApplicationHandler for SkiaRenderer {
                             }
                         }
                     }
+                    self.animator.update(dt);
 
                     // --- 核心绘制 ---
                     // 必须先解构借用，避免在闭包中同时借用 &mut self.renderer 和 &mut self.painter
                     let painter = &mut self.painter;
-                    let ctx = &self.ctx;
+                    let animator = &self.animator; // 传 animator
                     let ui = &mut self.ui_state;
+                    let ctx = &self.ctx;
 
                     renderer.draw_and_present(|canvas, size| {
-                        painter.paint(canvas, ctx, ui, (size.width, size.height));
+                        painter.paint(canvas, ctx, animator, ui, (size.width, size.height));
                     });
+
+                    self.request_redraw();
                 }
             },
 

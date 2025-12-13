@@ -74,6 +74,7 @@ pub enum Stmt {
     Hide {
         span: Span,
         target: String,
+        transition:  Option<Transition>,
     },
     /// Displays or updates an image or sprite.
     Show {

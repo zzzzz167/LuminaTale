@@ -9,9 +9,9 @@ pub enum OutputEvent {
 
 
     NewScene {transition: String},
-    NewSprite { transition: String },
-    UpdateSprite { transition: String },
-    HideSprite,
+    NewSprite { target:String, transition: String },
+    UpdateSprite { target:String, transition: String },
+    HideSprite { target:String, transition: Option<String> },
 
     StepDone,
     End,

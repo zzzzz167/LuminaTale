@@ -634,10 +634,20 @@ impl<'a> Parser<'a> {
         let span = self.span();
         self.expect(TokKind::Hide);
         let target = self.str_or_ident();
+
+        let mut transition = None;
+        if let Some(TokKind::Reserved(k)) = self.peek() {
+            if k.as_str() == "with" {
+                self.bump();
+                let effect = self.bump().tok.as_str().unwrap().to_string();
+                transition = Some(Transition { effect });
+            }
+        }
+
         if !self.at(TokKind::Comment("".into())) {
             self.expect_any([TokKind::Eof,TokKind::Newline]);
         }
-        Stmt::Hide {span, target}
+        Stmt::Hide {span, target, transition}
     }
 
     fn if_stmt(&mut self) -> Stmt {

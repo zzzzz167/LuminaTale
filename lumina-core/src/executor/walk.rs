@@ -145,7 +145,7 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
                     if let Some(trans) = position {
                         c.position = Some(trans.to_string());
                     }
-                    events.push(OutputEvent::UpdateSprite {transition:transition.clone()
+                    events.push(OutputEvent::UpdateSprite {target: target.clone(), transition:transition.clone()
                         .unwrap_or(Transition{effect:config::get().layer.trans_effect.clone()}).effect
                     });
                 }
@@ -163,17 +163,20 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
                         position: position.clone(),
                         zindex: 1usize,
                     });
-                events.push(OutputEvent::NewSprite {transition:transition.clone()
+                events.push(OutputEvent::NewSprite {target: target.clone(), transition:transition.clone()
                     .unwrap_or(Transition{effect:config::get().layer.trans_effect.clone()}).effect
                 });
             }
             NextAction::Continue
         },
-        Stmt::Hide {target, ..} => {
+        Stmt::Hide {target, transition, ..} => {
             if let Some(pos) = ctx.layer_record.layer.get("master").unwrap()
                 .iter().position(|x| x.target == *target) {
                 ctx.layer_record.layer.get_mut("master").unwrap().remove(pos);
-                events.push(OutputEvent::HideSprite);
+                events.push(OutputEvent::HideSprite {
+                    target: target.clone(),
+                    transition: transition.as_ref().map(|t| t.effect.clone())
+                });
             }
             NextAction::Continue
         }

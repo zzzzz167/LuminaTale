@@ -1,38 +1,47 @@
-character ch1 name="测试娘" image_tag="ch1"
+character ch1 name="爱丽丝" image_tag="ch1"
+character ch2 name="鲍勃"  image_tag="ch2"
 
 label init
-
 scene bg demo
-ch1: "我将出现在左边"
-show ch1 happy at left
+: 动画测试开始。请确保 assets 目录下有 ch1.png 和 ch2.png。
 
-ch1: "我将出现在右边"
-show ch1 happy at right
+: [测试 1] 爱丽丝应该从左侧【淡入 (fade_in)】出现
+show ch1 at left with fade_in
+ch1: "你好！如果你看到我是慢慢浮现的，说明 fade_in 成功了。"
 
-ch1: "我回到中间了"
-show ch1 happy at center
+: [测试 2] 鲍勃应该从右侧【溶解 (dissolve)】出现，且爱丽丝保持不动
+show ch2 at right with dissolve
+ch2: "嘿！我是鲍勃。我不应该覆盖掉爱丽丝。"
 
-choice "你的选择?"
-"1": call one
-"2": call two
-"3": call three
-enco
+: [测试 3] 爱丽丝将移动到【中间 (center)】
+show ch1 at center
+ch1: "我移动到了中间。"
 
-ch1: "测试结束"
+: [测试 4] 爱丽丝将【淡出 (fade_out)】，鲍勃应该还在
+hide ch1 with fade_out
+ch2: "爱丽丝走了吗？我还在这里哦。"
+
+: [测试 5] 鲍勃应该会更改表情
+show ch2 happy
+
+
+: [测试 6] 鲍勃将【瞬间消失 (默认)】
+    hide ch2
+    : 现在屏幕上应该什么都没有了。
+
+    choice "再看一遍动画效果?"
+        "重来": jump init
+        "不要": jump end
+    enco
 
 enlb
 
-label one
-show ch1 happy at left
-ch1: "你选择了1!"
-enlb
+label end
 
-label two
-show ch1 happy at right
-ch1: "你选择了2!"
-enlb
-
-label three
-show ch1 happy at center
-ch1: "你选择了3!"
+:[测试 7] 鲍勃将再次出现并且消失
+show ch2 at center
+ch2: 我又来了!
+scene
+:你现在应该看不见鲍勃
+: 测试结束。
 enlb

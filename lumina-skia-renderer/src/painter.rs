@@ -4,6 +4,7 @@ use skia_safe::textlayout::{FontCollection, ParagraphBuilder, ParagraphStyle, Te
 use lumina_core::Ctx;
 use crate::assets::AssetManager;
 use crate::ui_state::{UiState, UiMode};
+use crate::animator::{RenderSprite, SceneAnimator};
 
 pub struct Painter {
     assets: AssetManager,
@@ -22,12 +23,19 @@ impl Painter {
         }
     }
 
-    pub fn paint(&mut self, canvas: &Canvas, ctx: &Ctx, ui_state: &mut UiState, window_size: (f32, f32)) {
+    pub fn paint(
+        &mut self,
+        canvas: &Canvas,
+        ctx: &Ctx,
+        animator: &SceneAnimator,
+        ui_state: &mut UiState,
+        window_size: (f32, f32)
+    ) {
         let (w, h) = window_size;
 
-        canvas.clear(Color::WHITE);
+        canvas.clear(Color::BLACK);
 
-        self.draw_layers(canvas, ctx, w, h);
+        self.draw_sprites(canvas, animator);
 
         match &mut ui_state.mode {
             UiMode::Choice {title, options, hit_boxes, hover_index} => {
@@ -54,64 +62,42 @@ impl Painter {
 
     }
 
-    fn draw_layers(&mut self, canvas: &Canvas, ctx: &Ctx, w: f32, h: f32) {
-        for layer_name in &ctx.layer_record.arrange {
-            if let Some(sprites) = ctx.layer_record.layer.get(layer_name) {
-                for sprite in sprites {
-                    // --- 自动拼接文件名 ---
-                    let mut filename = sprite.target.clone();
-                    if !sprite.attrs.is_empty() {
-                        filename.push('_');
-                        filename.push_str(&sprite.attrs.join("_"));
-                    }
-
-                    if let Some(image) = self.assets.get_image(&filename) {
-                        let img_w = image.width() as f32;
-                        let img_h = image.height() as f32;
-
-                        if img_w == 0.0 || img_h == 0.0 { continue; }
-
-                        let dest_rect = if sprite.zindex == 0 {
-                            let scale = (w / img_w).max(h / img_h);
-                            let draw_w = img_w * scale;
-                            let draw_h = img_h * scale;
-
-                            let x = (w - draw_w) / 2.0;
-                            let y = (h - draw_h) / 2.0;
-
-                            Rect::new(x, y, x + draw_w, y + draw_h)
-                        } else {
-                            let target_height = h * 0.85;
-                            let scale = target_height / img_h;
-                            let draw_w = img_w * scale;
-                            let draw_h = img_h * scale;
-
-                            let pos_str = sprite.position.as_deref().unwrap_or("center");
-
-                            let center_x = match pos_str {
-                                "left" => w * 0.2,   // 放在屏幕左侧 20% 处
-                                "right" => w * 0.8,  // 放在屏幕右侧 80% 处
-                                "center" | _ => w * 0.5, // 屏幕正中
-                            };
-
-                            // 计算左上角坐标 (以底部对齐)
-                            let x = center_x - (draw_w / 2.0);
-                            let y = h - draw_h; // 紧贴底部
-
-                            Rect::new(x, y, x + draw_w, y + draw_h)
-                        };
-
-                        canvas.draw_image_rect(
-                            &image,
-                            None,
-                            dest_rect,
-                            &Paint::default()
-                        );
-                    }
-                }
-            }
+    fn draw_sprites(&mut self, canvas: &Canvas, animator: &SceneAnimator) {
+        let logical_size = animator.window_logical_size;
+        let mut render_list: Vec<&RenderSprite> = animator.sprites.values().collect();
+        render_list.sort_by(|a, b| a.z_index.cmp(&b.z_index));
+        for sprite in render_list {
+            let is_bg = sprite.z_index == 0;
+            self.draw_single_sprite(canvas, sprite, is_bg, logical_size);
         }
     }
+
+    fn draw_single_sprite(&mut self, canvas: &Canvas, sprite: &RenderSprite, is_bg: bool, logical_size: (f32, f32)) {
+        let filename = sprite.full_asset_name();
+
+        if let Some(image) = self.assets.get_image(&filename) {
+            let mut paint = Paint::default();
+            paint.set_alpha_f(sprite.alpha);
+
+            let dest_rect = if is_bg {
+                Rect::from_wh(logical_size.0, logical_size.1)
+            } else {
+                let img_w = image.width() as f32;
+                let img_h = image.height() as f32;
+
+                let draw_w = img_w * sprite.scale;
+                let draw_h = img_h * sprite.scale;
+
+                let x = sprite.pos.x - draw_w / 2.0;
+                let y = sprite.pos.y - draw_h;
+
+                Rect::new(x, y, x + draw_w, y + draw_h)
+            };
+
+            canvas.draw_image_rect(&image, None, dest_rect, &paint);
+        }
+    }
+
 
     fn draw_choice_menu(
         &mut self,
