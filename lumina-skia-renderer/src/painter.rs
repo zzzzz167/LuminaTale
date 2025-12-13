@@ -92,8 +92,8 @@ impl Painter {
                 let draw_w = img_w * sprite.scale;
                 let draw_h = img_h * sprite.scale;
 
-                let x = sprite.pos.x - draw_w / 2.0;
-                let y = sprite.pos.y - draw_h;
+                let x = sprite.pos.x - (draw_w * sprite.anchor.x);
+                let y = sprite.pos.y - (draw_h * sprite.anchor.y);
 
                 Rect::new(x, y, x + draw_w, y + draw_h)
             };

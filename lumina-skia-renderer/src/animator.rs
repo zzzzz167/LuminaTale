@@ -67,6 +67,7 @@ pub struct RenderSprite {
     pub alpha: f32,
     pub pos: Point,
     pub scale: f32,
+    pub anchor: Point,
 
     pub alpha_tween: Option<Tween>,
     pub pos_tween: Option<PosTween>,
@@ -76,6 +77,12 @@ pub struct RenderSprite {
 
 impl RenderSprite {
     pub fn new(texture_name: String, attrs: Vec<String>, pos: Point, z_index: usize) -> Self {
+        let default_anchor = if z_index == 0 {
+            Point::new(0.0, 0.0)
+        } else {
+            Point::new(0.5, 1.0)
+        };
+
         Self {
             texture_name,
             attrs,
@@ -83,6 +90,7 @@ impl RenderSprite {
             alpha: 1.0,
             pos,
             scale: 1.0,
+            anchor: default_anchor,
             alpha_tween: None,
             pos_tween: None,
             pending_kill: false,
@@ -115,6 +123,10 @@ impl RenderSprite {
 
     pub fn set_attrs(&mut self, new_attrs: Vec<String>) {
         if self.attrs != new_attrs { self.attrs = new_attrs; }
+    }
+
+    pub fn set_anchor(&mut self, x: f32, y: f32) {
+        self.anchor = Point::new(x, y);
     }
 
     pub fn move_to(&mut self, target_pos: Point, duration: f32) {
@@ -157,7 +169,14 @@ impl SceneAnimator {
         });
     }
 
-    pub fn handle_new_sprite(&mut self, id: String, texture_name: String, _transition: String, pos_str: Option<&str>) {
+    pub fn handle_new_sprite(
+        &mut self,
+        id: String,
+        texture_name: String,
+        _transition: String,
+        pos_str: Option<&str>,
+        attrs: Vec<String>
+    ) {
         let (w, h) = self.window_logical_size;
 
         let pos_x = match pos_str.unwrap_or("center") {
@@ -165,9 +184,9 @@ impl SceneAnimator {
             "right" => w * 0.8,
             "center" | _ => w * 0.5,
         };
-        let pos_y = h;
+        let pos_y = h * 0.8;
 
-        let mut sprite = RenderSprite::new(texture_name, vec![], Point::new(pos_x, pos_y), 10);
+        let mut sprite = RenderSprite::new(texture_name, attrs, Point::new(pos_x, pos_y), 10);
 
         if _transition == "dissolve" || _transition == "fade_in" {
             sprite.alpha = 0.0;
@@ -187,10 +206,12 @@ impl SceneAnimator {
                     "right" => w * 0.8,
                     "center" | _ => w * 0.5,
                 };
-                let target_y = h;
+                let target_y = h * 0.8;
 
                 let target_pos = Point::new(target_x, target_y);
-                sprite.move_to(target_pos, 0.5);
+
+                let duration = if _transition == "instant" { 0.0 } else { 0.6 };
+                sprite.move_to(target_pos, duration);
             }
             if let Some(attrs) = new_attrs {
                 sprite.set_attrs(attrs);

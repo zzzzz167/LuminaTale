@@ -125,16 +125,22 @@ impl ApplicationHandler for SkiaRenderer {
                                         .and_then(|ch| ch.image_tag.clone())
                                         .unwrap_or_else(|| target.clone());
 
-                                    // 查找位置信息
                                     let mut pos_str = None;
+                                    let mut attrs = Vec::new();
                                     if let Some(layer) = self.ctx.layer_record.layer.get("master") {
                                         if let Some(sprite) = layer.iter().find(|s| s.target == target) {
                                             pos_str = sprite.position.as_deref();
                                         }
                                     }
 
-                                    // 传递: id=target, texture=texture_name
-                                    self.animator.handle_new_sprite(target, texture_name, transition, pos_str);
+                                    if let Some(layer) = self.ctx.layer_record.layer.get("master") {
+                                        if let Some(sprite) = layer.iter().find(|s| s.target == target) {
+                                            pos_str = sprite.position.as_deref();
+                                            attrs = sprite.attrs.clone(); // [新增] 提取属性
+                                        }
+                                    }
+
+                                    self.animator.handle_new_sprite(target, texture_name, transition, pos_str, attrs);
                                 },
                                 OutputEvent::UpdateSprite { target, transition } => {
                                     let mut pos_str = None;
