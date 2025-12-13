@@ -23,6 +23,10 @@ impl Painter {
         }
     }
 
+    pub fn gc_assets(&mut self, keep_alive: std::time::Duration) {
+        self.assets.gc(keep_alive);
+    }
+
     pub fn paint(
         &mut self,
         canvas: &Canvas,

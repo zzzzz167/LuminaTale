@@ -11,3 +11,4 @@ log = "0.4.29"
 ash = { version = "0.38.0+1.3.281", features = ["linked"] }
 lumina-core = { path = "../lumina-core" }
 viviscript-core = {path = "../viviscript-core"}
+walkdir = "2.5.0"

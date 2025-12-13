@@ -12,7 +12,7 @@ use winit::{
     keyboard::{PhysicalKey, KeyCode}
 };
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use skia_safe::{Contains, Point};
 
 use viviscript_core::ast::Script;
@@ -25,6 +25,7 @@ pub struct SkiaRenderer {
     renderer: Option<VulkanRenderer>,
     painter: Painter,
     ui_state: UiState,
+    gc_timer: Instant,
 
     ctx: Ctx,
     driver: Option<ExecutorHandle>,
@@ -43,6 +44,7 @@ impl SkiaRenderer {
             renderer: None,
             painter: Painter::new(),
             ui_state: UiState::default(),
+            gc_timer: Instant::now(),
             ctx: Ctx::default(),
             driver: None,
             init_script: Some(script),
@@ -73,7 +75,7 @@ impl ApplicationHandler for SkiaRenderer {
         let scale_factor = window.scale_factor();
         let logical_size = size.to_logical::<f32>(scale_factor);
 
-        log::info!("Window Init: Physical {:?}, Logical {:?}", size, logical_size);
+        log::debug!("Window Init: Physical {:?}, Logical {:?}", size, logical_size);
         self.animator.resize(logical_size.width, logical_size.height);
 
         self.renderer = Some(self.render_ctx.renderer_for_window(event_loop, window.clone()));
@@ -200,6 +202,11 @@ impl ApplicationHandler for SkiaRenderer {
                         painter.paint(canvas, ctx, animator, ui, (size.width, size.height));
                     });
 
+                    if self.gc_timer.elapsed().as_secs() >= 5 {
+                        self.painter.gc_assets(Duration::from_secs(10));
+                        self.gc_timer = Instant::now();
+                    }
+
                     self.request_redraw();
                 }
             },
@@ -235,7 +242,7 @@ impl ApplicationHandler for SkiaRenderer {
                 if let Some(driver) = self.driver.as_mut() {
                     match &self.ui_state.mode {
                         UiMode::Choice { hover_index:Some(idx), .. } => {
-                            log::info!("UI: Choice made -> {}", idx);
+                            log::debug!("UI: Choice made -> {}", idx);
                             driver.feed(&mut self.ctx, InputEvent::ChoiceMade { index: *idx });
 
                             self.ui_state.clear();

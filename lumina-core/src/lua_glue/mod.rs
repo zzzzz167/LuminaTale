@@ -1,4 +1,4 @@
-use mlua::{Lua, FromLua, Value, Table};
+use mlua::{Lua};
 use std::sync::{Arc, Mutex};
 use log::{error, info};
 
