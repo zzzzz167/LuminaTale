@@ -364,7 +364,7 @@ impl<'a> Parser<'a> {
         };
 
         self.expect(TokKind::Colon);
-        let raw = self.string();
+        let raw = self.str_or_ident();
         
         let re = Regex::new(r"\(([^()]*)\)$").unwrap();
         let (text, voice_index) = if let Some(caps) = re.captures(&raw) {
