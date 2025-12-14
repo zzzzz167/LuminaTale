@@ -6,5 +6,6 @@ pub mod vk_utils;
 pub mod ui_state;
 pub mod animator;
 pub mod config;
+pub mod audio;
 
 pub use renderer::SkiaRenderer;

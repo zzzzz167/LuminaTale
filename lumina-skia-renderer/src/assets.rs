@@ -6,16 +6,18 @@ use walkdir::WalkDir;
 use skia_safe::{Image, Data};
 
 pub struct AssetManager {
-    cache: HashMap<String, (Image, Instant)>,
-    path_index: HashMap<String, PathBuf>,
+    image_cache: HashMap<String, (Image, Instant)>,
+    image_paths: HashMap<String, PathBuf>,
+    audio_paths: HashMap<String, PathBuf>,
     root_path: PathBuf,
 }
 
 impl AssetManager {
     pub fn new(root_path: &str) -> Self {
         let mut manager = Self {
-            cache: HashMap::new(),
-            path_index: HashMap::new(),
+            image_cache: HashMap::new(),
+            image_paths: HashMap::new(),
+            audio_paths: HashMap::new(),
             root_path: PathBuf::from(root_path),
         };
 
@@ -31,30 +33,34 @@ impl AssetManager {
             if path.is_file() {
                 if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
                     let ext = ext.to_lowercase();
-                    if ext == "png" || ext == "jpg" || ext == "jpeg" {
-                        // 获取文件名（不带后缀），作为 Key
-                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                            // 检查重名冲突
-                            if self.path_index.contains_key(stem) {
-                                log::warn!("Duplicate asset name detected: '{}'. Overwriting with {:?}", stem, path);
-                            }
-                            self.path_index.insert(stem.to_string(), path.to_path_buf());
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        let key = stem.to_string();
+
+                        match ext.as_str() {
+                            "png" | "jpg" | "jpeg" => {
+                                self.image_paths.insert(key, path.to_path_buf());
+                            },
+                            "mp3" | "wav" | "ogg" | "flac" => {
+                                self.audio_paths.insert(key, path.to_path_buf());
+                            },
+                            _ => {}
                         }
                     }
                 }
             }
         }
 
-        log::info!("Asset scan complete. Indexed {} files.", self.path_index.len());
+        log::info!("Asset scan complete. Images: {}, Audio: {}",
+            self.image_paths.len(), self.audio_paths.len());
     }
 
     pub fn get_image(&mut self, name: &str) -> Option<Image> {
-        if let Some((img, last_used)) = self.cache.get_mut(name) {
+        if let Some((img, last_used)) = self.image_cache.get_mut(name) {
             *last_used = Instant::now(); // 更新活跃时间
             return Some(img.clone());
         }
 
-        let file_path = self.path_index.get(name)?;
+        let file_path = self.image_paths.get(name)?;
         log::debug!("Loading asset: {} -> {:?}", name, file_path);
         let bytes = match fs::read(file_path) {
             Ok(b) => b,
@@ -67,7 +73,7 @@ impl AssetManager {
         let data = Data::new_copy(&bytes);
         if let Some(image) = Image::from_encoded(data) {
             // 存入缓存
-            self.cache.insert(name.to_string(), (image.clone(), Instant::now()));
+            self.image_cache.insert(name.to_string(), (image.clone(), Instant::now()));
             Some(image)
         } else {
             log::error!("Failed to decode image: {:?}", file_path);
@@ -75,11 +81,15 @@ impl AssetManager {
         }
     }
 
+    pub fn get_audio_path(&self, name: &str) -> Option<&PathBuf> {
+        self.audio_paths.get(name)
+    }
+
     pub fn gc(&mut self, keep_alive: Duration){
         let now = Instant::now();
-        let before_len = self.cache.len();
+        let before_len = self.image_cache.len();
 
-        self.cache.retain(|name, (_, last_used)| {
+        self.image_cache.retain(|name, (_, last_used)| {
             let is_alive = now.duration_since(*last_used) < keep_alive;
             if !is_alive {
                 log::debug!("GC: Unloading asset '{}'", name);
@@ -87,9 +97,9 @@ impl AssetManager {
             is_alive
         });
 
-        let freed_count = before_len - self.cache.len();
+        let freed_count = before_len - self.image_cache.len();
         if freed_count > 0 {
-            log::debug!("GC Triggered: Freed {} assets. Current cache size: {}", freed_count, self.cache.len());
+            log::debug!("GC Triggered: Freed {} assets. Current cache size: {}", freed_count, self.image_cache.len());
         }
     }
 }

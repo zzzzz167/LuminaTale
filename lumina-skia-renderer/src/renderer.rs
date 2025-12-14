@@ -5,6 +5,8 @@ use crate::vk_utils::renderer::VulkanRenderer;
 use crate::ui_state::{UiMode, UiState};
 use crate::animator::SceneAnimator;
 use crate::config::WindowConfig;
+use crate::assets::AssetManager;
+use crate::audio::AudioPlayer;
 
 use winit::{
     event_loop::{ControlFlow, EventLoop, ActiveEventLoop},
@@ -26,7 +28,11 @@ use lumina_core::renderer::driver::ExecutorHandle;
 pub struct SkiaRenderer {
     render_ctx: VulkanRenderContext,
     renderer: Option<VulkanRenderer>,
+
+    assets: AssetManager,
+    audio_player: AudioPlayer,
     painter: Painter,
+
     ui_state: UiState,
     gc_timer: Instant,
 
@@ -47,7 +53,9 @@ impl SkiaRenderer {
         Self {
             render_ctx: VulkanRenderContext::default(),
             renderer: None,
-            painter: Painter::new(asset_path),
+            assets: AssetManager::new(asset_path),
+            audio_player: AudioPlayer::new(),
+            painter: Painter::new(),
             ui_state: UiState::default(),
             gc_timer: Instant::now(),
             ctx: Ctx::default(),
@@ -200,10 +208,16 @@ impl ApplicationHandler for SkiaRenderer {
                                     }
                                 },
                                 OutputEvent::End => event_loop.exit(),
-                                OutputEvent::PlayAudio { .. } => {
-                                    // TODO: 对接音频系统
-                                    log::info!("(Audio) {:?}", event);
-                                }
+                                OutputEvent::PlayAudio { channel, path, fade_in, volume, looping } => {
+                                    if let Some(full_path) = self.assets.get_audio_path(&path) {
+                                        self.audio_player.play(&channel, full_path, volume, fade_in, looping);
+                                    } else {
+                                        log::error!("Audio file not found: {}", path);
+                                    }
+                                },
+                                OutputEvent::StopAudio { channel, fade_out } => {
+                                    self.audio_player.stop(&channel, fade_out);
+                                },
                                 _ => {}
                             }
                         }
@@ -213,16 +227,17 @@ impl ApplicationHandler for SkiaRenderer {
                     // --- 核心绘制 ---
                     // 必须先解构借用，避免在闭包中同时借用 &mut self.renderer 和 &mut self.painter
                     let painter = &mut self.painter;
+                    let assets = &mut self.assets;
                     let animator = &self.animator; // 传 animator
                     let ui = &mut self.ui_state;
                     let ctx = &self.ctx;
 
                     renderer.draw_and_present(|canvas, size| {
-                        painter.paint(canvas, ctx, animator, ui, (size.width, size.height));
+                        painter.paint(canvas, ctx, animator, ui, (size.width, size.height), assets);
                     });
 
                     if self.gc_timer.elapsed().as_secs() >= 5 {
-                        self.painter.gc_assets(Duration::from_secs(10));
+                        self.assets.gc(Duration::from_secs(10));
                         self.gc_timer = Instant::now();
                     }
 

@@ -7,24 +7,17 @@ use crate::ui_state::{UiState, UiMode};
 use crate::animator::{RenderSprite, SceneAnimator};
 
 pub struct Painter {
-    assets: AssetManager,
     font_collection: FontCollection,
 }
 
 impl Painter {
-    pub fn new(assets_path: &str) -> Self{
-        let assets = AssetManager::new(assets_path);
+    pub fn new() -> Self{
         let mut font_collection = FontCollection::new();
         font_collection.set_default_font_manager(skia_safe::FontMgr::default(), None);
 
         Self {
-            assets,
             font_collection,
         }
-    }
-
-    pub fn gc_assets(&mut self, keep_alive: std::time::Duration) {
-        self.assets.gc(keep_alive);
     }
 
     pub fn paint(
@@ -33,13 +26,14 @@ impl Painter {
         ctx: &Ctx,
         animator: &SceneAnimator,
         ui_state: &mut UiState,
-        window_size: (f32, f32)
+        window_size: (f32, f32),
+        assets: &mut AssetManager
     ) {
         let (w, h) = window_size;
 
         canvas.clear(Color::BLACK);
 
-        self.draw_sprites(canvas, animator);
+        self.draw_sprites(canvas, animator, assets);
 
         match &mut ui_state.mode {
             UiMode::Choice {title, options, hit_boxes, hover_index} => {
@@ -66,20 +60,27 @@ impl Painter {
 
     }
 
-    fn draw_sprites(&mut self, canvas: &Canvas, animator: &SceneAnimator) {
+    fn draw_sprites(&mut self, canvas: &Canvas, animator: &SceneAnimator, assets: &mut AssetManager) {
         let logical_size = animator.window_logical_size;
         let mut render_list: Vec<&RenderSprite> = animator.sprites.values().collect();
         render_list.sort_by(|a, b| a.z_index.cmp(&b.z_index));
         for sprite in render_list {
             let is_bg = sprite.z_index == 0;
-            self.draw_single_sprite(canvas, sprite, is_bg, logical_size);
+            self.draw_single_sprite(canvas, sprite, is_bg, logical_size, assets);
         }
     }
 
-    fn draw_single_sprite(&mut self, canvas: &Canvas, sprite: &RenderSprite, is_bg: bool, logical_size: (f32, f32)) {
+    fn draw_single_sprite(
+        &mut self,
+        canvas: &Canvas,
+        sprite: &RenderSprite,
+        is_bg: bool,
+        logical_size: (f32, f32),
+        assets: &mut AssetManager
+    ) {
         let filename = sprite.full_asset_name();
 
-        if let Some(image) = self.assets.get_image(&filename) {
+        if let Some(image) = assets.get_image(&filename) {
             let mut paint = Paint::default();
             paint.set_alpha_f(sprite.alpha);
 

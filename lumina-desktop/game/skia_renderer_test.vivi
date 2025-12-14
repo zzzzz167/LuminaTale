@@ -1,13 +1,14 @@
-character ch1 name="爱丽丝" image_tag="ch1"
+character ch1 name="爱丽丝" image_tag="ch1" voice_tag="ch1"
 character ch2 name="鲍勃"  image_tag="ch2"
 
 label init
 scene bg demo
+play music bgm_1 loop
 : 动画测试开始。请确保 assets 目录下有 ch1.png 和 ch2.png。
 
 : [测试 1] 爱丽丝应该从左侧【淡入 (fade_in)】出现
 show ch1 at left with fade_in
-ch1: "你好！如果你看到我是慢慢浮现的，说明 fade_in 成功了。"
+ch1: 你好！如果你看到我是慢慢浮现的，说明 fade_in 成功了。(0001)
 
 : [测试 2] 鲍勃应该从右侧【溶解 (dissolve)】出现，且爱丽丝保持不动
 show ch2 at right with dissolve
