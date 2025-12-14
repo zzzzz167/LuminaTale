@@ -1,15 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::path::Path;
-use std::fs;
-use once_cell::sync::OnceCell;
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(default)]
-pub struct Config {
-    pub debug: DebugCfg,
-    pub audio: AudioCfg,
-    pub layer: LayerCfg,
-}
+use lumina_shared::config;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioCfg {
@@ -21,6 +11,7 @@ pub struct AudioCfg {
     pub fade_out:  f32,
     pub voice_link: String,
 }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DebugCfg {
     pub log_level: String,
@@ -34,9 +25,23 @@ pub struct LayerCfg {
     pub sprite_zindex: usize,
 }
 
-impl Default for Config {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CoreConfig {
+    pub debug: DebugCfg,
+    pub audio: AudioCfg,
+    pub layer: LayerCfg,
+
+    #[serde(default = "default_script_path")]
+    pub script_path: String,
+}
+
+fn default_script_path() -> String {
+    "game/00_init.vivi".to_string()
+}
+
+impl Default for CoreConfig {
     fn default() -> Self {
-        Config {
+        CoreConfig {
             audio: AudioCfg {
                 default_volume: 0.7,
                 voice_volume: 0.7,
@@ -54,38 +59,12 @@ impl Default for Config {
                 trans_effect: "dissolve".to_string(),
                 scene_zindex: 0usize,
                 sprite_zindex: 1usize,
-            }
+            },
+            script_path: default_script_path(),
         }
     }
 }
 
-static CONFIG: OnceCell<Config> = OnceCell::new();
-
-pub fn init_global<P: AsRef<Path>>(path: P) {
-    let path = path.as_ref();
-    
-    if !path.exists() {
-        let default = Config::default();
-        let toml = toml::to_string_pretty(&default).unwrap();
-        fs::write(path, toml).unwrap();
-        log::info!("Created default config at {:?}", path);
-        CONFIG.set(default).ok();
-        return;
-    }
-    
-    let cfg: Config = toml::from_str(&fs::read_to_string(path).unwrap())
-        .unwrap_or_else(|e| {
-            log::warn!("Bad config {:?}: {} — using defaults", path, e);
-            Config::default()
-        });
-    
-    let toml = toml::to_string_pretty(&cfg).unwrap();
-    fs::write(path, toml).unwrap();
-    log::info!("Config upgraded & saved to {:?}", path);
-
-    CONFIG.set(cfg).ok();
-}
-
-pub fn get() -> &'static Config {
-    CONFIG.get().expect("config::init_global must be called first")
+pub fn get() -> CoreConfig {
+    config::get::<CoreConfig>("core")
 }

@@ -12,8 +12,8 @@ pub struct Painter {
 }
 
 impl Painter {
-    pub fn new() -> Self{
-        let assets = AssetManager::new("example-game/assets");
+    pub fn new(assets_path: &str) -> Self{
+        let assets = AssetManager::new(assets_path);
         let mut font_collection = FontCollection::new();
         font_collection.set_default_font_manager(skia_safe::FontMgr::default(), None);
 

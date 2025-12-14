@@ -1,3 +1,4 @@
+#[cfg(feature = "tui")]
 pub mod terminal;
 pub mod driver;
 

@@ -1,20 +1,23 @@
+use std::sync::Arc;
 use crate::painter::Painter;
 use crate::vk_utils::context::VulkanRenderContext;
 use crate::vk_utils::renderer::VulkanRenderer;
 use crate::ui_state::{UiMode, UiState};
 use crate::animator::SceneAnimator;
+use crate::config::WindowConfig;
 
 use winit::{
     event_loop::{ControlFlow, EventLoop, ActiveEventLoop},
     application::ApplicationHandler,
     window::{Window, WindowId},
     event::{WindowEvent, KeyEvent, ElementState, MouseButton},
-    keyboard::{PhysicalKey, KeyCode}
+    keyboard::{PhysicalKey, KeyCode},
+    dpi::PhysicalSize
 };
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use skia_safe::{Contains, Point};
 
+use lumina_shared;
 use viviscript_core::ast::Script;
 use lumina_core::{Ctx, OutputEvent};
 use lumina_core::event::InputEvent;
@@ -39,10 +42,12 @@ pub struct SkiaRenderer {
 
 impl SkiaRenderer {
     pub fn new(script: Script) -> Self {
+        let cfg: WindowConfig = lumina_shared::config::get("window");
+        let asset_path = &cfg.assets.assets_path;
         Self {
             render_ctx: VulkanRenderContext::default(),
             renderer: None,
-            painter: Painter::new(),
+            painter: Painter::new(asset_path),
             ui_state: UiState::default(),
             gc_timer: Instant::now(),
             ctx: Ctx::default(),
@@ -69,7 +74,15 @@ impl SkiaRenderer {
 
 impl ApplicationHandler for SkiaRenderer {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let window = Arc::new(event_loop.create_window(Window::default_attributes().with_title("LuminaTale Skia")).unwrap());
+        let cfg: WindowConfig = lumina_shared::config::get("window");
+        log::info!("Window Config Loaded: {}x{} VSync:{}", cfg.width, cfg.height, cfg.vsync);
+
+        let window_attributes = Window::default_attributes()
+            .with_title(&cfg.title)
+            .with_inner_size(PhysicalSize::new(cfg.width, cfg.height))
+            .with_resizable(cfg.resizable);
+
+        let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
         let size = window.inner_size();
         let scale_factor = window.scale_factor();
@@ -78,7 +91,7 @@ impl ApplicationHandler for SkiaRenderer {
         log::debug!("Window Init: Physical {:?}, Logical {:?}", size, logical_size);
         self.animator.resize(logical_size.width, logical_size.height);
 
-        self.renderer = Some(self.render_ctx.renderer_for_window(event_loop, window.clone()));
+        self.renderer = Some(self.render_ctx.renderer_for_window(event_loop, window.clone(), cfg.vsync));
         if let Some(script) = self.init_script.take() {
             log::info!("Initializing Game Executor...");
             self.driver = Some(ExecutorHandle::new(&mut self.ctx, script));

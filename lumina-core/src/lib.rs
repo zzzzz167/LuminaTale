@@ -8,5 +8,6 @@ pub mod config;
 
 pub use runtime::Ctx;
 pub use executor::Executor;
+#[cfg(feature = "tui")]
 pub use renderer::terminal::TuiRenderer;
 pub use event::OutputEvent;

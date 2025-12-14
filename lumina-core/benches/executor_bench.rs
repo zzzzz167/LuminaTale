@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
-use lumina_core::{config, runtime::Ctx, OutputEvent};
+use lumina_core::{runtime::Ctx, OutputEvent};
 use lumina_core::event::InputEvent;
 use lumina_core::renderer::driver::ExecutorHandle;
 use lumina_core::renderer::Renderer;
@@ -56,7 +56,9 @@ fn bench_executor(c: &mut Criterion) {
     group.sample_size(10);
 
     group.bench_function("step 10k stmts", |b| {
-        INIT.call_once(|| config::init_global("config.toml"));
+        INIT.call_once(|| {
+            let _ = lumina_shared::config::init("bench_dummy.toml");
+        });
         b.iter_batched(||make_script(LINES),
         |sc| {
             let mut ctx = Ctx::default();

@@ -38,7 +38,7 @@ impl Drop for VulkanRenderer {
 }
 
 impl VulkanRenderer {
-    pub fn new(window: Arc<Window>, queue: Arc<Queue>) -> Self {
+    pub fn new(window: Arc<Window>, queue: Arc<Queue>, vsync: bool) -> Self {
         // Extract references to key structs from the queue
         let library = queue.device().instance().library();
         let instance = queue.device().instance();
@@ -67,6 +67,12 @@ impl VulkanRenderer {
                 .physical_device()
                 .surface_formats(&surface, Default::default())
                 .unwrap()[0];
+
+            let present_mode = if vsync {
+                PresentMode::Fifo // 强制 VSync (锁帧)
+            } else {
+                PresentMode::Immediate // 不锁帧 (可能撕裂，但延迟低)
+            };
 
             // Please take a look at the docs for the meaning of the parameters we didn't mention.
             Swapchain::new(
@@ -105,7 +111,7 @@ impl VulkanRenderer {
                     //
                     // Only `Fifo` is guaranteed to be supported on every device. For the others, you must call
                     // [`surface_present_modes`] to see if they are supported.
-                    present_mode: PresentMode::Fifo,
+                    present_mode,
 
                     // The alpha mode indicates how the alpha value of the final image will behave.
                     // For example, you can choose whether the window will be

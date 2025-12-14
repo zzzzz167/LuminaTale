@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = [ "example-game","lumina-core", "lumina-skia-renderer", "viviscript-core"]
+members = [ "lumina-desktop","lumina-core", "lumina-shared", "lumina-skia-renderer", "viviscript-core"]
 
 [profile.bench]
 debug = true

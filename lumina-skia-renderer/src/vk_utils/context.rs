@@ -23,13 +23,14 @@ impl VulkanRenderContext {
         &mut self,
         event_loop: &ActiveEventLoop,
         window: Arc<Window>,
+        vsync: bool,
     ) -> VulkanRenderer {
         // lazily set up a shared instance, device, and queue to use for all subsequent renderers
         let queue = self
             .queue
             .get_or_insert_with(|| Self::shared_queue(event_loop, window.clone()));
 
-        VulkanRenderer::new(window.clone(), queue.clone())
+        VulkanRenderer::new(window.clone(), queue.clone(), vsync)
     }
 
     fn shared_queue(event_loop: &ActiveEventLoop, window: Arc<Window>) -> Arc<Queue> {
