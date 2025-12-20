@@ -1,11 +1,10 @@
-pub mod assets;
-pub mod painter;
 pub mod renderer;
-
+pub mod core;
+pub mod scene;
+pub mod ui;
 pub mod vk_utils;
-pub mod ui_state;
-pub mod animator;
 pub mod config;
-pub mod audio;
+
+pub mod ui_state;
 
 pub use renderer::SkiaRenderer;

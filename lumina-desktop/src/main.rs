@@ -77,7 +77,7 @@ fn main() {
 #[cfg(feature = "skia")]
 fn run_skia(script: viviscript_core::ast::Script) {
     use lumina_skia_renderer::SkiaRenderer;
-    let app = SkiaRenderer::new(script);
+    let app = SkiaRenderer::new(None);
     app.run();
 }
 

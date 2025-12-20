@@ -1,12 +1,10 @@
 use std::sync::Arc;
-use crate::painter::Painter;
+use crate::core::{Painter, AssetManager, AudioPlayer};
 use crate::vk_utils::context::VulkanRenderContext;
 use crate::vk_utils::renderer::VulkanRenderer;
 use crate::ui_state::{UiMode, UiState};
-use crate::animator::SceneAnimator;
+use crate::scene::{AppScene, SceneAnimator};
 use crate::config::WindowConfig;
-use crate::assets::AssetManager;
-use crate::audio::AudioPlayer;
 
 use winit::{
     event_loop::{ControlFlow, EventLoop, ActiveEventLoop},
@@ -28,40 +26,46 @@ use lumina_core::renderer::driver::ExecutorHandle;
 pub struct SkiaRenderer {
     render_ctx: VulkanRenderContext,
     renderer: Option<VulkanRenderer>,
-
     assets: AssetManager,
     audio_player: AudioPlayer,
     painter: Painter,
-
-    ui_state: UiState,
-    gc_timer: Instant,
-
-    ctx: Ctx,
-    driver: Option<ExecutorHandle>,
-    init_script: Option<Script>,
-
     animator: SceneAnimator,
-    last_frame: Instant,
 
+    state: AppScene,
+
+    gc_timer: Instant,
+    last_frame: Instant,
     cursor_pos: Point,
 }
 
 impl SkiaRenderer {
-    pub fn new(script: Script) -> Self {
+    pub fn new(script: Option<Script>) -> Self {
         let cfg: WindowConfig = lumina_shared::config::get("window");
         let asset_path = &cfg.assets.assets_path;
+
+        let initial_state = if let Some(s) = script {
+            let mut ctx = Ctx::default();
+            let driver = ExecutorHandle::new(&mut ctx, s);
+            AppScene::InGame {
+                ctx,
+                driver,
+                ui_state: UiState::default()
+            }
+        } else {
+                AppScene::MainMenu
+        };
+
         Self {
             render_ctx: VulkanRenderContext::default(),
             renderer: None,
             assets: AssetManager::new(asset_path),
             audio_player: AudioPlayer::new(),
             painter: Painter::new(),
-            ui_state: UiState::default(),
-            gc_timer: Instant::now(),
-            ctx: Ctx::default(),
-            driver: None,
-            init_script: Some(script),
             animator: SceneAnimator::new(),
+
+            state: initial_state,
+
+            gc_timer: Instant::now(),
             last_frame: Instant::now(),
             cursor_pos: Point::new(0.0, 0.0),
         }
@@ -77,6 +81,86 @@ impl SkiaRenderer {
         if let Some(renderer) = self.renderer.as_ref() {
             renderer.window.request_redraw();
         }
+    }
+
+    fn update_ingame(&mut self, dt: f32, event_loop: &ActiveEventLoop) {
+        if let AppScene::InGame {ctx, driver, ui_state} = &mut self.state {
+            let mut waiting = false;
+            for _ in 0..1000 {
+                waiting = driver.step(ctx);
+                if waiting { break; } // 遇到 WaitInput 或 WaitChoice，停止执行，等待渲染和输入
+            }
+
+            for event in ctx.drain() {
+                match event {
+                    OutputEvent::PlayAudio { channel, path, fade_in, volume, looping } => {
+                        if let Some(full_path) = self.assets.get_audio_path(&path) {
+                            self.audio_player.play(&channel, full_path, volume, fade_in, looping);
+                        } else {
+                            log::error!("Audio not found: {}", path);
+                        }
+                    },
+                    OutputEvent::StopAudio { channel, fade_out } => {
+                        self.audio_player.stop(&channel, fade_out);
+                    },
+                    OutputEvent::NewSprite { target, transition } => {
+                        let texture_name = ctx.characters.get(&target)
+                            .and_then(|ch| ch.image_tag.clone())
+                            .unwrap_or_else(|| target.clone());
+                        let mut pos_str = None;
+                        let mut attrs = Vec::new();
+                        if let Some(layer) = ctx.layer_record.layer.get("master") {
+                            if let Some(sprite) = layer.iter().find(|s| s.target == target) {
+                                pos_str = sprite.position.as_deref();
+                                attrs = sprite.attrs.clone();
+                            }
+                        }
+                        self.animator.handle_new_sprite(target, texture_name, transition, pos_str, attrs);
+                    },
+                    OutputEvent::UpdateSprite { target, transition } => {
+                        let mut pos_str = None;
+                        let mut new_attrs = None;
+
+                        if let Some(layer) = ctx.layer_record.layer.get("master") {
+                            if let Some(sprite) = layer.iter().find(|s| s.target == target) {
+                                pos_str = sprite.position.as_deref();
+                                new_attrs = Some(sprite.attrs.clone());
+                            }
+                        }
+
+                        self.animator.handle_update_sprite(target, transition, pos_str, new_attrs);
+                    },
+                    OutputEvent::HideSprite { target, transition } => {
+                        self.animator.handle_hide_sprite(target, transition);
+                    },
+                    OutputEvent::NewScene { transition } => {
+                        let mut bg_name = None;
+                        if let Some(layer) = ctx.layer_record.layer.get("master") {
+                            if let Some(bg) = layer.first() {
+                                let mut full_name = bg.target.clone();
+                                if !bg.attrs.is_empty() {
+                                    full_name.push('_');
+                                    full_name.push_str(&bg.attrs.join("_"));
+                                }
+                                bg_name = Some(full_name);
+                            }
+                        }
+                        self.animator.handle_new_scene(bg_name, transition);
+                    },
+                    OutputEvent::ShowChoice { title, options } => {
+                        log::info!("[UI] Entering Choice Mode");
+                        ui_state.set_choices(title, options);
+                    },
+                    OutputEvent::ShowDialogue { .. } | OutputEvent::ShowNarration { .. } => {
+                        if ui_state.is_choosing() { ui_state.clear(); }
+                    },
+                    OutputEvent::End => event_loop.exit(),
+                    _ => {}
+                }
+            }
+        }
+
+        self.animator.update(dt);
     }
 }
 
@@ -100,10 +184,6 @@ impl ApplicationHandler for SkiaRenderer {
         self.animator.resize(logical_size.width, logical_size.height);
 
         self.renderer = Some(self.render_ctx.renderer_for_window(event_loop, window.clone(), cfg.vsync));
-        if let Some(script) = self.init_script.take() {
-            log::info!("Initializing Game Executor...");
-            self.driver = Some(ExecutorHandle::new(&mut self.ctx, script));
-        }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -125,115 +205,37 @@ impl ApplicationHandler for SkiaRenderer {
             WindowEvent::RedrawRequested => {
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer.prepare_swapchain();
+                }
 
-                    let now = Instant::now();
-                    let dt = now.duration_since(self.last_frame).as_secs_f32();
-                    self.last_frame = now;
+                let now = Instant::now();
+                let dt = now.duration_since(self.last_frame).as_secs_f32();
+                self.last_frame = now;
 
-                    // --- 游戏逻辑步进 ---
-                    if let Some(driver) = self.driver.as_mut() {
-                        let mut waiting = false;
-                        for _ in 0..1000 {
-                            waiting = driver.step(&mut self.ctx);
-                            if waiting { break; } // 遇到 WaitInput 或 WaitChoice，停止执行，等待渲染和输入
-                        }
-
-                        // 处理非视觉事件 (音频等)
-                        for event in self.ctx.drain() {
-                            match event {
-                                OutputEvent::NewSprite { target, transition } => {
-                                    let texture_name = self.ctx.characters.get(&target)
-                                        .and_then(|ch| ch.image_tag.clone())
-                                        .unwrap_or_else(|| target.clone());
-
-                                    let mut pos_str = None;
-                                    let mut attrs = Vec::new();
-                                    if let Some(layer) = self.ctx.layer_record.layer.get("master") {
-                                        if let Some(sprite) = layer.iter().find(|s| s.target == target) {
-                                            pos_str = sprite.position.as_deref();
-                                        }
-                                    }
-
-                                    if let Some(layer) = self.ctx.layer_record.layer.get("master") {
-                                        if let Some(sprite) = layer.iter().find(|s| s.target == target) {
-                                            pos_str = sprite.position.as_deref();
-                                            attrs = sprite.attrs.clone(); // [新增] 提取属性
-                                        }
-                                    }
-
-                                    self.animator.handle_new_sprite(target, texture_name, transition, pos_str, attrs);
-                                },
-                                OutputEvent::UpdateSprite { target, transition } => {
-                                    let mut pos_str = None;
-                                    let mut new_attrs = None;
-
-                                    if let Some(layer) = self.ctx.layer_record.layer.get("master") {
-                                        if let Some(sprite) = layer.iter().find(|s| s.target == target) {
-                                            pos_str = sprite.position.as_deref();
-                                            new_attrs = Some(sprite.attrs.clone());
-                                        }
-                                    }
-
-                                    self.animator.handle_update_sprite(target, transition, pos_str, new_attrs);
-                                },
-                                OutputEvent::HideSprite { target, transition } => {
-                                    self.animator.handle_hide_sprite(target, transition);
-                                },
-
-                                OutputEvent::NewScene { transition } => {
-                                    let mut bg_name = None;
-
-                                    if let Some(layer) = self.ctx.layer_record.layer.get("master") {
-                                        if let Some(bg) = layer.first() {
-                                            let mut full_name = bg.target.clone();
-                                            if !bg.attrs.is_empty() {
-                                                full_name.push('_');
-                                                full_name.push_str(&bg.attrs.join("_"));
-                                            }
-                                            bg_name = Some(full_name);
-                                        }
-                                    }
-
-                                    self.animator.handle_new_scene(bg_name, transition);
-                                },
-
-                                OutputEvent::ShowChoice { title, options } => {
-                                    log::info!("UI: Entering Choice Mode");
-                                    self.ui_state.set_choices(title, options);
-                                },
-                                OutputEvent::ShowDialogue { .. } | OutputEvent::ShowNarration { .. } => {
-                                    // 任何新文本出现，清理旧的 Choice 状态（安全起见）
-                                    if self.ui_state.is_choosing() {
-                                        self.ui_state.clear();
-                                    }
-                                },
-                                OutputEvent::End => event_loop.exit(),
-                                OutputEvent::PlayAudio { channel, path, fade_in, volume, looping } => {
-                                    if let Some(full_path) = self.assets.get_audio_path(&path) {
-                                        self.audio_player.play(&channel, full_path, volume, fade_in, looping);
-                                    } else {
-                                        log::error!("Audio file not found: {}", path);
-                                    }
-                                },
-                                OutputEvent::StopAudio { channel, fade_out } => {
-                                    self.audio_player.stop(&channel, fade_out);
-                                },
-                                _ => {}
-                            }
-                        }
+                match &mut self.state {
+                    AppScene::MainMenu => {self.animator.update(dt);},
+                    AppScene::InGame {..} => {
+                        self.update_ingame(dt, event_loop);
                     }
-                    self.animator.update(dt);
+                };
+
+                if let Some(renderer) = self.renderer.as_mut() {
 
                     // --- 核心绘制 ---
                     // 必须先解构借用，避免在闭包中同时借用 &mut self.renderer 和 &mut self.painter
                     let painter = &mut self.painter;
                     let assets = &mut self.assets;
-                    let animator = &self.animator; // 传 animator
-                    let ui = &mut self.ui_state;
-                    let ctx = &self.ctx;
+                    let animator = &self.animator;
+                    let state = &mut self.state;
 
                     renderer.draw_and_present(|canvas, size| {
-                        painter.paint(canvas, ctx, animator, ui, (size.width, size.height), assets);
+                        match state {
+                            AppScene::MainMenu => {
+                                canvas.clear(skia_safe::Color::from_argb(255, 40, 40, 40));
+                            },
+                            AppScene::InGame { ctx, ui_state, .. } => {
+                                painter.paint(canvas, ctx, animator, ui_state, (size.width, size.height), assets);
+                            }
+                        }
                     });
 
                     if self.gc_timer.elapsed().as_secs() >= 5 {
@@ -254,39 +256,42 @@ impl ApplicationHandler for SkiaRenderer {
                 let y = position.y as f32 / scale_factor as f32;
                 self.cursor_pos = Point::new(x, y);
 
-                if let UiMode::Choice { hit_boxes, hover_index, .. } = &mut self.ui_state.mode {
-                    let mut new_hover = None;
-                    for (i, rect) in hit_boxes.iter().enumerate() {
-                        // 检测点是否在矩形内
-                        if rect.contains(self.cursor_pos) {
-                            new_hover = Some(i);
-                            break;
+                match &mut self.state {
+                    AppScene::MainMenu => {
+                        // TODO: 处理主菜单按钮 Hover
+                    },
+                    AppScene::InGame { ui_state, .. } => {
+                        // 现有的 Choice Hover 逻辑
+                        if let UiMode::Choice { hit_boxes, hover_index, .. } = &mut ui_state.mode {
+                            let mut new_hover = None;
+                            for (i, rect) in hit_boxes.iter().enumerate() {
+                                if rect.contains(self.cursor_pos) { new_hover = Some(i); break; }
+                            }
+                            if *hover_index != new_hover { *hover_index = new_hover; self.request_redraw(); }
                         }
-                    }
-
-                    // 状态改变才重绘，节省性能
-                    if *hover_index != new_hover {
-                        *hover_index = new_hover;
-                        self.request_redraw();
                     }
                 }
             },
 
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
-                if let Some(driver) = self.driver.as_mut() {
-                    match &self.ui_state.mode {
-                        UiMode::Choice { hover_index:Some(idx), .. } => {
-                            log::debug!("UI: Choice made -> {}", idx);
-                            driver.feed(&mut self.ctx, InputEvent::ChoiceMade { index: *idx });
-
-                            self.ui_state.clear();
-                            self.request_redraw();
-                        },
-                        UiMode::None => {
-                            driver.feed(&mut self.ctx, InputEvent::Continue);
-                            self.request_redraw();
+                match &mut self.state {
+                    AppScene::MainMenu => {
+                        log::info!("Clicked on Main Menu!");
+                    },
+                    AppScene::InGame { ctx, driver, ui_state } => {
+                        // 现有的游戏点击逻辑
+                        match &ui_state.mode {
+                            UiMode::Choice { hover_index: Some(idx), .. } => {
+                                driver.feed(ctx, InputEvent::ChoiceMade { index: *idx });
+                                ui_state.clear();
+                                self.request_redraw();
+                            },
+                            UiMode::None => {
+                                driver.feed(ctx, InputEvent::Continue);
+                                self.request_redraw();
+                            }
+                            _ => {}
                         }
-                        _ => {}
                     }
                 }
             },
@@ -299,10 +304,15 @@ impl ApplicationHandler for SkiaRenderer {
                 },
                 ..
             } => {
-                if let Some(driver) = self.driver.as_mut() {
-                    if !self.ui_state.is_choosing() {
-                        driver.feed(&mut self.ctx, InputEvent::Continue);
-                        self.request_redraw();
+                match &mut self.state {
+                    AppScene::MainMenu => {
+                        // TODO
+                    },
+                    AppScene::InGame { ctx, driver ,ui_state, .. } => {
+                        if !ui_state.is_choosing() {
+                            driver.feed(ctx, InputEvent::Continue);
+                            self.request_redraw();
+                        }
                     }
                 }
             }

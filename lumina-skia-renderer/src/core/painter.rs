@@ -2,9 +2,9 @@ use skia_safe::{Canvas, Color, FontStyle, Paint, Point, Rect};
 use skia_safe::font_style::{Slant, Weight, Width};
 use skia_safe::textlayout::{FontCollection, ParagraphBuilder, ParagraphStyle, TextAlign, TextStyle};
 use lumina_core::Ctx;
-use crate::assets::AssetManager;
+use crate::core::assets::AssetManager;
 use crate::ui_state::{UiState, UiMode};
-use crate::animator::{RenderSprite, SceneAnimator};
+use crate::scene::animator::{RenderSprite, SceneAnimator};
 
 pub struct Painter {
     font_collection: FontCollection,
