@@ -1,11 +1,11 @@
-use skia_safe::{Canvas, Color, FontStyle, Paint, Point, Rect};
-use skia_safe::font_style::{Slant, Weight, Width};
-use skia_safe::textlayout::{FontCollection, ParagraphBuilder, ParagraphStyle, TextAlign, TextStyle};
 use lumina_core::Ctx;
+use skia_safe::textlayout::{FontCollection, ParagraphBuilder, ParagraphStyle, TextStyle};
+use skia_safe::{Canvas, Color, Paint, Point, Rect};
+
 use crate::core::assets::AssetManager;
-use crate::ui::{UiState, UiMode};
 use crate::scene::animator::{RenderSprite, SceneAnimator};
-use crate::ui::widgets::{Button, ButtonState};
+use crate::ui::{RenderContext, WidgetNode, WidgetRender};
+use crate::ui_state::{UiMode, UiState};
 
 pub struct Painter {
     font_collection: FontCollection,
@@ -28,91 +28,31 @@ impl Painter {
         animator: &SceneAnimator,
         ui_state: &mut UiState,
         window_size: (f32, f32),
-        assets: &mut AssetManager
+        assets: &mut AssetManager,
+        ui_root: Option<&WidgetNode>,
     ) {
-        let (w, h) = window_size;
-
         canvas.clear(Color::BLACK);
 
         self.draw_sprites(canvas, animator, assets);
 
-        match &mut ui_state.mode {
-            UiMode::Choice {title, buttons} => {
-                let mut mask = Paint::default();
-                mask.set_color(Color::from_argb(128, 0, 0, 0));
-                canvas.draw_rect(Rect::new(0.0, 0.0, w, h), &mask);
-
-                if let Some(t) = title {
-                    let btn_width = 500.0;
-                    let btn_height = 70.0;
-                    let gap = 20.0;
-
-                    let total_h = buttons.len() as f32 * (btn_height + gap) - gap;
-                    let start_y = (h - total_h) / 2.0;
-
-                    let mut title_style = TextStyle::new();
-                    title_style.set_color(Color::WHITE);
-                    title_style.set_font_size(40.0);
-                    title_style.set_font_style(FontStyle::new(Weight::BOLD, Width::NORMAL, Slant::Upright));
-
-                    let mut pb = ParagraphBuilder::new(&ParagraphStyle::new(), &self.font_collection);
-                    pb.push_style(&title_style);
-                    pb.add_text(t);
-                    let mut p = pb.build();
-                    p.layout(w);
-                    p.paint(canvas, Point::new((w - p.max_width()) / 2.0, start_y - 80.0));
-                }
-
-                for btn in buttons {
-                    self.draw_button(canvas, btn);
-                }
-            },
-            _ => {
-                self.draw_dialogue(canvas, ctx, w, h);
-            }
+        if ui_root.is_none() {
+            self.draw_dialogue(canvas, ctx, window_size.0, window_size.1);
         }
-    }
 
-    pub(crate) fn draw_button(&mut self, canvas: &Canvas, btn: &Button) {
-        let mut paint = Paint::default();
-        paint.set_anti_alias(true);
-
-        let bg_color = match btn.state {
-            ButtonState::Normal => Color::from_rgb(60, 60, 60),
-            ButtonState::Hovered => Color::from_rgb(80, 80, 100),
-            ButtonState::Pressed => Color::from_rgb(40, 40, 40),
+        let mut render_ctx = RenderContext {
+            canvas,
+            fonts: &self.font_collection,
+            assets,
         };
-        paint.set_color(bg_color);
 
-        canvas.draw_round_rect(btn.rect, 10.0, 10.0, &paint);
-
-        if btn.state == ButtonState::Hovered {
-            let mut stroke = Paint::default();
-            stroke.set_style(skia_safe::paint::Style::Stroke);
-            stroke.set_stroke_width(2.0);
-            stroke.set_color(Color::WHITE);
-            stroke.set_anti_alias(true);
-            canvas.draw_round_rect(btn.rect, 10.0, 10.0, &stroke);
+        if let Some(root) = ui_root {
+            root.render(&mut render_ctx);
         }
 
-        let mut ts = TextStyle::new();
-        ts.set_color(Color::WHITE);
-        ts.set_font_size(24.0);
-        let mut ps = ParagraphStyle::new();
-        ps.set_text_align(TextAlign::Center);
-        ps.set_text_style(&ts);
-
-        let mut builder = ParagraphBuilder::new(&ps, &self.font_collection);
-        builder.push_style(&ts);
-        builder.add_text(&btn.text);
-
-        let mut paragraph = builder.build();
-        paragraph.layout(btn.rect.width());
-
-        let text_h = paragraph.height();
-        let text_y = btn.rect.y() + (btn.rect.height() - text_h) / 2.0;
-
-        paragraph.paint(canvas, Point::new(btn.rect.x(), text_y));
+        if let UiMode::Choice { root, .. } = &ui_state.mode {
+            // 确保选项菜单在最上层
+            root.render(&mut render_ctx);
+        }
     }
 
     fn draw_sprites(&mut self, canvas: &Canvas, animator: &SceneAnimator, assets: &mut AssetManager) {

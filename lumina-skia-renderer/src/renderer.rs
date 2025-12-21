@@ -1,10 +1,10 @@
 use crate::core::{Painter, AssetManager, AudioPlayer};
 use crate::vk_utils::context::VulkanRenderContext;
 use crate::vk_utils::renderer::VulkanRenderer;
-use crate::ui::{UiMode, UiState};
+use crate::ui_state::{UiState, UiMode};
 use crate::scene::{AppScene, SceneAnimator};
 use crate::config::WindowConfig;
-use crate::ui::widgets::UiAction;
+use crate::ui::{UiAction, WidgetNode};
 
 use winit::{
     event_loop::{ControlFlow, EventLoop, ActiveEventLoop},
@@ -16,7 +16,7 @@ use winit::{
 };
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use skia_safe::Point;
+use skia_safe::{Point, Rect};
 
 use lumina_shared;
 use viviscript_core::ast::Script;
@@ -88,12 +88,31 @@ impl SkiaRenderer {
 
     fn handle_ui_action(&mut self, action: UiAction, event_loop: &ActiveEventLoop) {
         match action {
+            // FIXME: 这块的架构太奇怪了, 应该重新设计
             UiAction::Quit => event_loop.exit(),
+
+            UiAction::OpenMenu(name) => {
+                if name == "Settings" {
+                    let prev = std::mem::replace(&mut self.state, AppScene::default());
+                    self.state = AppScene::new_settings(prev);
+                }
+            },
+
+            UiAction::Back => {
+                let prev_state = if let AppScene::Settings { prev_scene, .. } = &mut self.state {
+                    Some(std::mem::replace(prev_scene.as_mut(), AppScene::default()))
+                } else {
+                    None
+                };
+
+                if let Some(prev) = prev_state {
+                    self.state = prev;
+                }
+            },
 
             UiAction::RunScript(cmd) => {
                 if cmd == "StartGame" {
                     log::info!("Action: Start Game");
-                    // FIXME: 这里只是临时测试使用, 具体逻辑我还没想好, 暂时想法是让renderer暂持script 并且根据配置文件决定是否进入game
                     let mut ctx = Ctx::default();
                     let driver = ExecutorHandle::new(&mut ctx, self.game_script.clone());
 
@@ -110,6 +129,17 @@ impl SkiaRenderer {
                     driver.feed(ctx, InputEvent::ChoiceMade { index: idx });
                     ui_state.clear();
                 }
+            },
+            UiAction::AdjustVolume(key, val) => {
+                log::debug!("Volume [{}] -> {:.2}", key, val);
+                // TODO: 接入 AudioPlayer 和 Config
+                // FIXME: 这块的处理很不好其实
+                // self.audio_player.set_volume(key, val);
+            },
+
+            UiAction::ToggleConfig(key) => {
+                log::debug!("Toggle Config [{}]", key);
+                // TODO: 接入 Config
             },
             _ => {}
         }
@@ -244,10 +274,8 @@ impl ApplicationHandler for SkiaRenderer {
                 self.last_frame = now;
 
                 match &mut self.state {
-                    AppScene::MainMenu {..} => {self.animator.update(dt);},
-                    AppScene::InGame {..} => {
-                        self.update_ingame(dt, event_loop);
-                    }
+                    AppScene::InGame { .. } => self.update_ingame(dt, event_loop),
+                    _=> {self.animator.update(dt);}
                 };
 
                 if let Some(renderer) = self.renderer.as_mut() {
@@ -260,25 +288,41 @@ impl ApplicationHandler for SkiaRenderer {
                     let state = &mut self.state;
 
                     renderer.draw_and_present(|canvas, size| {
-                        match state {
-                            AppScene::MainMenu {buttons} => {
-                                canvas.clear(skia_safe::Color::from_argb(255, 40, 40, 40));
-                                for btn in buttons {
-                                    painter.draw_button(canvas, &btn);
-                                }
-                            },
+                        let mut dummy_ctx = Ctx::default();
+                        let mut dummy_ui_state = UiState::default();
+
+                        let win_rect = Rect::from_wh(size.width as f32, size.height as f32);
+
+                        let (ctx, ui_state, ui_root) = match state {
                             AppScene::InGame { ctx, ui_state, .. } => {
-                                painter.paint(canvas, ctx, animator, ui_state, (size.width, size.height), assets);
-                            }
-                        }
+                                (ctx, ui_state, None)
+                            },
+                            AppScene::MainMenu { root, .. } => {
+                                root.layout(win_rect);
+                                (&mut dummy_ctx, &mut dummy_ui_state, Some(root as &WidgetNode))
+                            },
+                            AppScene::Settings { root, .. } => {
+                                root.layout(win_rect);
+                                (&mut dummy_ctx, &mut dummy_ui_state, Some(root as &WidgetNode))
+                            },
+                        };
+
+                        painter.paint(
+                            canvas,
+                            ctx,
+                            animator,
+                            ui_state,
+                            (size.width, size.height),
+                            assets,
+                            ui_root
+                        );
                     });
 
                     if self.gc_timer.elapsed().as_secs() >= 5 {
                         self.assets.gc(Duration::from_secs(10));
                         self.gc_timer = Instant::now();
                     }
-
-                    self.request_redraw();
+                    renderer.window.request_redraw();
                 }
             },
 
@@ -286,44 +330,44 @@ impl ApplicationHandler for SkiaRenderer {
                 let scale = self.renderer.as_ref().map(|r| r.window.scale_factor()).unwrap_or(1.0);
                 self.cursor_pos = Point::new(position.x as f32 / scale as f32, position.y as f32 / scale as f32);
 
-                let mut need_redraw = false;
+                let mut action_to_perform = UiAction::None;
+
                 match &mut self.state {
-                    AppScene::MainMenu { buttons } => {
-                        for btn in buttons { btn.update_hover(self.cursor_pos); }
-                        need_redraw = true;
+                    AppScene::MainMenu { root } => {
+                        action_to_perform = root.on_mouse_move(self.cursor_pos);
+                    },
+                    AppScene::Settings { root, .. } => {
+                        action_to_perform = root.on_mouse_move(self.cursor_pos);
                     },
                     AppScene::InGame { ui_state, .. } => {
-                        if let UiMode::Choice { buttons, .. } = &mut ui_state.mode {
-                            for btn in buttons { btn.update_hover(self.cursor_pos); }
-                            need_redraw = true;
+                        if let UiMode::Choice { root, .. } = &mut ui_state.mode {
+                            action_to_perform = root.on_mouse_move(self.cursor_pos);
                         }
                     }
                 }
-                if need_redraw { self.request_redraw(); }
+                if action_to_perform != UiAction::None {
+                    self.handle_ui_action(action_to_perform, event_loop);
+                }
+                self.request_redraw();
             },
 
             WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
                 let mut action_to_perform = UiAction::None;
 
                 match &mut self.state {
-                    AppScene::MainMenu { buttons } => {
-                        for btn in buttons {
-                            if btn.contains(self.cursor_pos) {
-                                btn.state = crate::ui::widgets::ButtonState::Pressed;
-                                action_to_perform = btn.action.clone()
-                            }
-                        }
-                    }
+                    AppScene::MainMenu { root } => {
+                        action_to_perform = root.on_click(self.cursor_pos);
+                    },
+                    AppScene::Settings { root, .. } => {
+                        action_to_perform = root.on_click(self.cursor_pos);
+                    },
                     AppScene::InGame { ctx, driver, ui_state } => {
-                        if let UiMode::Choice { buttons, .. } = &mut ui_state.mode {
-                            for btn in buttons {
-                                if btn.contains(self.cursor_pos) {
-                                    btn.state = crate::ui::widgets::ButtonState::Pressed;
-                                    action_to_perform = btn.action.clone();
-                                }
-                            }
+                        // 1. 先看有没有点到 UI (选项)
+                        if let UiMode::Choice { root, .. } = &mut ui_state.mode {
+                            action_to_perform = root.on_click(self.cursor_pos);
                         }
 
+                        // 2. 没点到 UI，就是普通交互 (继续对话)
                         if action_to_perform == UiAction::None && !ui_state.is_choosing() {
                             driver.feed(ctx, InputEvent::Continue);
                             self.request_redraw();
@@ -336,7 +380,20 @@ impl ApplicationHandler for SkiaRenderer {
                     self.request_redraw();
                 }
             },
+            WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
+                match &mut self.state {
+                    AppScene::MainMenu { root } => root.on_mouse_release(),
+                    AppScene::Settings { root, .. } => root.on_mouse_release(),
+                    AppScene::InGame { ui_state, .. } => {
+                        if let UiMode::Choice { root, .. } = &mut ui_state.mode {
+                            root.on_mouse_release();
+                        }
+                    }
+                }
+            },
 
+            // TODO: 完善此处对键盘输入的处理
+            /*
             WindowEvent::KeyboardInput {
                 event: KeyEvent {
                     state: ElementState::Pressed,
@@ -347,7 +404,6 @@ impl ApplicationHandler for SkiaRenderer {
             } => {
                 match &mut self.state {
                     AppScene::MainMenu { .. } => {
-                        // TODO
                     },
                     AppScene::InGame { ctx, driver ,ui_state, .. } => {
                         if !ui_state.is_choosing() {
@@ -357,6 +413,7 @@ impl ApplicationHandler for SkiaRenderer {
                     }
                 }
             }
+            */
 
             _ => {
                 // 持续刷新以播放动画或响应调整
