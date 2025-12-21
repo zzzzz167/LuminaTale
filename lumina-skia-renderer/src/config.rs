@@ -7,12 +7,18 @@ pub struct WindowConfig {
     pub height: u32,
     pub resizable: bool,
     pub vsync: bool,
-    pub assets: AssetsConfig
+    pub assets: AssetsConfig,
+    pub debug: DebugConfig
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssetsConfig {
     pub assets_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DebugConfig {
+    pub skip_main_menu: bool,
 }
 
 impl Default for WindowConfig {
@@ -25,6 +31,9 @@ impl Default for WindowConfig {
             vsync: true, // 默认开启垂直同步，防止撕裂
             assets: AssetsConfig {
                 assets_path: "./assets".to_string(),
+            },
+            debug: DebugConfig {
+                skip_main_menu: false,
             }
         }
     }

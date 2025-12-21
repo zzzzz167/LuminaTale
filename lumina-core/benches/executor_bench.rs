@@ -1,8 +1,10 @@
+use std::sync::Arc;
 use criterion::{criterion_group, criterion_main, BatchSize, Criterion};
 use lumina_core::{runtime::Ctx, OutputEvent};
 use lumina_core::event::InputEvent;
 use lumina_core::renderer::driver::ExecutorHandle;
 use lumina_core::renderer::Renderer;
+use lumina_core::Executor;
 use viviscript_core::{ast::Script, lexer::Lexer, parser::Parser};
 
 fn make_script(lines: usize) -> Script {
@@ -18,8 +20,8 @@ fn make_script(lines: usize) -> Script {
             3 => buf.push_str(&format!("play music bgm{i} volume=0.7 loop\n")),
             4 => buf.push_str(&format!("hide spr{i}\n")),
             5 => buf.push_str(&format!("ch2: dialogue {i}\n")),
-            6 => buf.push_str("choice \"test\"\n \"0\": call empty\n \"1\": call empty\nenco\n"),
-            7 => buf.push_str(&format!("call empty {i}\n")),
+            6 => buf.push_str("choice \"test\"\n \"zero\": call empty\n \"first\": call empty\nenco\n"),
+            7 => buf.push_str("call empty\n"),
             _ => unreachable!(),
         }
     }
@@ -31,7 +33,7 @@ fn make_script(lines: usize) -> Script {
 
 struct NullRenderer;
 impl Renderer for NullRenderer {
-    fn run_event_loop(&mut self, ctx: &mut Ctx, script: Script) {
+    fn run_event_loop(&mut self, ctx: &mut Ctx, script: Arc<Script>) {
         let mut driver = ExecutorHandle::new(ctx, script);
 
         loop {
@@ -60,10 +62,11 @@ fn bench_executor(c: &mut Criterion) {
             let _ = lumina_shared::config::init("bench_dummy.toml");
         });
         b.iter_batched(||make_script(LINES),
-        |sc| {
+        |mut sc| {
             let mut ctx = Ctx::default();
             let mut renderer = NullRenderer;
-            renderer.run_event_loop(&mut ctx, sc);
+            Executor::prepare_script(&mut sc);
+            renderer.run_event_loop(&mut ctx, Arc::from(sc));
         },
         BatchSize::SmallInput);
     });

@@ -16,15 +16,13 @@ use winit::{
 };
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use skia_safe::{Contains, Point};
+use skia_safe::Point;
 
 use lumina_shared;
 use viviscript_core::ast::Script;
 use lumina_core::{Ctx, OutputEvent};
 use lumina_core::event::InputEvent;
 use lumina_core::renderer::driver::ExecutorHandle;
-use viviscript_core::lexer::Lexer;
-use viviscript_core::parser::Parser;
 
 pub struct SkiaRenderer {
     render_ctx: VulkanRenderContext,
@@ -34,6 +32,7 @@ pub struct SkiaRenderer {
     painter: Painter,
     animator: SceneAnimator,
 
+    game_script: Arc<Script>,
     state: AppScene,
 
     gc_timer: Instant,
@@ -42,13 +41,13 @@ pub struct SkiaRenderer {
 }
 
 impl SkiaRenderer {
-    pub fn new(script: Option<Script>) -> Self {
+    pub fn new(script: Arc<Script>) -> Self {
         let cfg: WindowConfig = lumina_shared::config::get("window");
         let asset_path = &cfg.assets.assets_path;
 
-        let initial_state = if let Some(s) = script {
+        let initial_state = if cfg.debug.skip_main_menu {
             let mut ctx = Ctx::default();
-            let driver = ExecutorHandle::new(&mut ctx, s);
+            let driver = ExecutorHandle::new(&mut ctx, script.clone());
             AppScene::InGame {
                 ctx,
                 driver,
@@ -66,6 +65,7 @@ impl SkiaRenderer {
             painter: Painter::new(),
             animator: SceneAnimator::new(),
 
+            game_script: script,
             state: initial_state,
 
             gc_timer: Instant::now(),
@@ -94,17 +94,14 @@ impl SkiaRenderer {
                 if cmd == "StartGame" {
                     log::info!("Action: Start Game");
                     // FIXME: 这里只是临时测试使用, 具体逻辑我还没想好, 暂时想法是让renderer暂持script 并且根据配置文件决定是否进入game
-                    if let Ok(content) = std::fs::read_to_string("lumina-desktop/game/skia_renderer_test.vivi") {
-                        let tokens = Lexer::new(&content).run();
-                        let ast = Parser::new(&tokens).parse();
-                        let mut ctx = Ctx::default();
-                        let driver = ExecutorHandle::new(&mut ctx, ast);
-                        self.state = AppScene::InGame {
-                            ctx, driver, ui_state: UiState::default()
-                        };
-                    } else {
-                        log::error!("Failed to load assets/main.vvs");
-                    }
+                    let mut ctx = Ctx::default();
+                    let driver = ExecutorHandle::new(&mut ctx, self.game_script.clone());
+
+                    self.state = AppScene::InGame {
+                        ctx,
+                        driver,
+                        ui_state: UiState::default()
+                    };
                 }
             },
 

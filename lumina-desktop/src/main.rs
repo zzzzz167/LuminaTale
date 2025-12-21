@@ -3,9 +3,11 @@ mod config_gen;
 
 use std::{env, fs};
 use std::path::Path;
+use std::sync::Arc;
 use lumina_shared;
 use viviscript_core::{lexer::Lexer, parser::Parser};
 use lumina_core::config::CoreConfig;
+use lumina_core::Executor;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -40,31 +42,33 @@ fn main() {
     let tokens = Lexer::new(&source).run();
     log::debug!("Lexing complete: {} tokens", tokens.len());
 
-    let ast = Parser::new(&tokens).parse();
+    let mut ast = Parser::new(&tokens).parse();
     if core_cfg.debug.show_ast {
         log::debug!("AST: {:#?}", ast);
     }
+    Executor::prepare_script(&mut ast);
+    let script_arc = Arc::new(ast);
 
     log::info!("Parsing complete");
 
     #[cfg(feature = "tui")]
     if is_tui_mode {
         log::info!("Mode: TUI (User Requested)");
-        run_tui(ast);
+        run_tui(script_arc);
         return;
     }
 
     #[cfg(feature = "skia")]
     {
         log::info!("Mode: Skia (Default)");
-        run_skia(ast);
+        run_skia(script_arc);
         return;
     }
 
     #[cfg(feature = "tui")]
     {
         log::info!("Mode: TUI (Fallback)");
-        run_tui(ast);
+        run_tui(script_arc);
         return;
     }
 
@@ -75,14 +79,14 @@ fn main() {
 }
 
 #[cfg(feature = "skia")]
-fn run_skia(script: viviscript_core::ast::Script) {
+fn run_skia(script: Arc<viviscript_core::ast::Script>) {
     use lumina_skia_renderer::SkiaRenderer;
-    let app = SkiaRenderer::new(None);
+    let app = SkiaRenderer::new(script);
     app.run();
 }
 
 #[cfg(feature = "tui")]
-fn run_tui(script: viviscript_core::ast::Script) {
+fn run_tui(script: Arc<viviscript_core::ast::Script>) {
     use lumina_core::{Ctx, TuiRenderer};
     use lumina_core::renderer::Renderer;
 

@@ -2,7 +2,7 @@ mod frame;
 mod call_stack;
 mod walk;
 
-use std::rc::Rc;
+use std::sync::Arc;
 use rustc_hash::FxHashMap;
 use mlua::Lua;
 use viviscript_core::ast::{Stmt, Script};
@@ -23,7 +23,7 @@ pub struct Executor {
     cmd_buffer: CommandBuffer,
     pending_choice: Option<Vec<(String, Vec<Stmt>)>>,
     pause: bool,
-    label_map: FxHashMap<String, Rc<[Stmt]>>,
+    label_map: FxHashMap<String, Arc<[Stmt]>>,
 }
 
 impl Executor {
@@ -41,19 +41,62 @@ impl Executor {
         }
     }
 
-    pub fn preload_script(&mut self, ctx: &mut Ctx ,script: &mut Script) {
-        log::info!("Processing preload");
+    pub fn prepare_script(script: &mut Script) {
+        log::info!("Preparing script (mutating AST)...");
         pre_narration_lines(&mut script.body);
+
+        let mut dummy_map = FxHashMap::default();
+        preprocess_block(&mut script.body, "root", &mut dummy_map);
+    }
+
+    pub fn load_script(&mut self, ctx: &mut Ctx, script: Arc<Script>) {
+        log::info!("Loading script (indexing)...");
+
         pre_collect_characters(ctx, &script.body);
-        // 建立 label → body 映射
+
         self.label_map.clear();
-        preprocess_block(&mut script.body, "root", &mut self.label_map);
+        self.build_label_map_from_stmts(&script.body);
+    }
+
+    fn build_label_map_from_stmts(&mut self, stmts: &[Stmt]) {
+        for stmt in stmts {
+            match stmt {
+                Stmt::Label { id, body, .. } => {
+                    self.label_map.insert(id.clone(), Arc::from(body.as_slice()));
+                    self.build_label_map_from_stmts(body);
+                },
+                Stmt::If { branches, else_branch, id, .. } => {
+                    if let Some(base_id) = id {
+                        for (idx, (_, body)) in branches.iter().enumerate() {
+                            let branch_id = format!("{}_b{}", base_id, idx);
+                            self.label_map.insert(branch_id, Arc::from(body.as_slice()));
+                            self.build_label_map_from_stmts(body);
+                        }
+                        if let Some(body) = else_branch {
+                            let branch_id = format!("{}_else", base_id);
+                            self.label_map.insert(branch_id, Arc::from(body.as_slice()));
+                            self.build_label_map_from_stmts(body);
+                        }
+                    }
+                },
+                Stmt::Choice { arms, id, .. } => {
+                    if let Some(base_id) = id {
+                        for (idx, arm) in arms.iter().enumerate() {
+                            let arm_id = format!("{}_opt{}", base_id, idx);
+                            self.label_map.insert(arm_id, Arc::from(arm.body.as_slice()));
+                            self.build_label_map_from_stmts(&arm.body);
+                        }
+                    }
+                },
+                _ => {}
+            }
+        }
     }
     
     pub fn start(&mut self, ctx: &mut Ctx, label: &str) {
         init_ctx_runtime(ctx);
-        let body = self.label_body(label).unwrap_or_else(|| panic!("label {} not found",label));
-        self.call_stack.push(Frame::new(label.to_string(),body.to_vec(), 0));
+        let body = self.get_block_arc(label).unwrap_or_else(|| panic!("label {} not found", label));
+        self.call_stack.push(Frame::new(label.to_string(),body, 0));
     }
     pub fn feed(&mut self, ev: InputEvent) {
         match ev {
@@ -102,7 +145,7 @@ impl Executor {
     pub fn restore(&mut self, snap: Vec<FrameSnapshot>) {
         self.call_stack.clear();
         for fs in snap {
-            if let Some(body) = self.label_body(&fs.label) {
+            if let Some(body) = self.get_block_arc(&fs.label) {
                 let pc = if fs.pc > body.len() { 0 } else { fs.pc };
                 let frame = Frame::new(fs.label, body, pc);
                 self.call_stack.push(frame);
@@ -134,8 +177,8 @@ impl Executor {
         }
     }
 
-    fn label_body(&self, name: &str) -> Option<&[Stmt]> {
-        self.label_map.get(name).map(|rc| rc.as_ref())
+    fn get_block_arc(&self, name: &str) -> Option<Arc<[Stmt]>> {
+        self.label_map.get(name).cloned()
     }
 
     fn process_lua_commands(&mut self, _ctx: &mut Ctx) -> bool {
@@ -153,9 +196,8 @@ impl Executor {
     }
 
     fn perform_jump(&mut self, label: &str) {
-        let body = self.label_body(label)
-            .unwrap_or_else(|| panic!("label {} not found", label))
-            .to_vec();
+        let body = self.get_block_arc(label)
+            .unwrap_or_else(|| panic!("label {} not found", label));
         self.call_stack.clear();
         self.call_stack.push(Frame::new(label.to_string(), body, 0));
     }
@@ -185,10 +227,8 @@ impl Executor {
                 self.perform_jump(&label);
             },
             NextAction::Call(target) => {
-                let body = self
-                    .label_body(&target)
-                    .unwrap_or_else(|| panic!("label {} not found",target))
-                    .to_vec();
+                let body = self.get_block_arc(&target)
+                    .unwrap_or_else(|| panic!("label {} not found", target));
                 let frame = self.call_stack.top_mut().unwrap();
                 let return_frame = Frame::new(frame.name.clone(),frame.stmts.clone(), frame.pc + 1);
                 self.call_stack.pop();
@@ -202,7 +242,7 @@ impl Executor {
                 self.call_stack.pop();
                 self.call_stack.push(return_frame);
 
-                self.call_stack.push(Frame::new(block_id, stmts, 0));
+                self.call_stack.push(Frame::new(block_id, Arc::from(stmts.as_slice()), 0));
             }
         }
     }
@@ -272,7 +312,7 @@ fn pre_narration_lines(body: &mut Vec<Stmt>) {
 fn preprocess_block(
     stmts: &mut [Stmt],
     scope_name: &str,
-    map: &mut FxHashMap<String, Rc<[Stmt]>>
+    map: &mut FxHashMap<String, Arc<[Stmt]>>
 ) {
     let mut counters: HashMap<&str, usize> = HashMap::new();
 
@@ -280,7 +320,7 @@ fn preprocess_block(
         match stmt {
             Stmt::Label {id, body, ..} => {
                 preprocess_block(body, id, map);
-                map.insert(id.clone(), Rc::from(body.as_slice()));
+                map.insert(id.clone(), Arc::from(body.as_slice()));
             },
             Stmt::If { branches, else_branch, id, .. } => {
                 let count = counters.entry("if").or_insert(0);
@@ -291,13 +331,13 @@ fn preprocess_block(
                 for (idx, (_, body)) in branches.iter_mut().enumerate() {
                     let branch_id = format!("{}_b{}", base_id, idx);
                     preprocess_block(body, &branch_id, map);
-                    map.insert(branch_id.clone(), Rc::from(body.as_slice()));
+                    map.insert(branch_id.clone(), Arc::from(body.as_slice()));
                 }
 
                 if let Some(body) = else_branch {
                     let branch_id = format!("{}_else", base_id);
                     preprocess_block(body, &branch_id, map);
-                    map.insert(branch_id.clone(), Rc::from(body.as_slice()));
+                    map.insert(branch_id.clone(), Arc::from(body.as_slice()));
                 }
             },
             Stmt::Choice { arms, id, .. } => {
@@ -309,7 +349,7 @@ fn preprocess_block(
                 for (idx, arm) in arms.iter_mut().enumerate() {
                     let arm_id = format!("{}_opt{}", base_id, idx);
                     preprocess_block(&mut arm.body, &arm_id, map);
-                    map.insert(arm_id.clone(), Rc::from(arm.body.as_slice()));
+                    map.insert(arm_id.clone(), Arc::from(arm.body.as_slice()));
                 }
             },
             _ => {}
