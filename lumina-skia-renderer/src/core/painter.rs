@@ -3,8 +3,9 @@ use skia_safe::font_style::{Slant, Weight, Width};
 use skia_safe::textlayout::{FontCollection, ParagraphBuilder, ParagraphStyle, TextAlign, TextStyle};
 use lumina_core::Ctx;
 use crate::core::assets::AssetManager;
-use crate::ui_state::{UiState, UiMode};
+use crate::ui::{UiState, UiMode};
 use crate::scene::animator::{RenderSprite, SceneAnimator};
+use crate::ui::widgets::{Button, ButtonState};
 
 pub struct Painter {
     font_collection: FontCollection,
@@ -36,28 +37,82 @@ impl Painter {
         self.draw_sprites(canvas, animator, assets);
 
         match &mut ui_state.mode {
-            UiMode::Choice {title, options, hit_boxes, hover_index} => {
+            UiMode::Choice {title, buttons} => {
                 let mut mask = Paint::default();
                 mask.set_color(Color::from_argb(128, 0, 0, 0));
                 canvas.draw_rect(Rect::new(0.0, 0.0, w, h), &mask);
 
-                hit_boxes.clear();
+                if let Some(t) = title {
+                    let btn_width = 500.0;
+                    let btn_height = 70.0;
+                    let gap = 20.0;
 
-                self.draw_choice_menu(
-                    canvas,
-                    w, h,
-                    title.as_deref(),
-                    options,
-                    hit_boxes,
-                    *hover_index,
-                );
+                    let total_h = buttons.len() as f32 * (btn_height + gap) - gap;
+                    let start_y = (h - total_h) / 2.0;
+
+                    let mut title_style = TextStyle::new();
+                    title_style.set_color(Color::WHITE);
+                    title_style.set_font_size(40.0);
+                    title_style.set_font_style(FontStyle::new(Weight::BOLD, Width::NORMAL, Slant::Upright));
+
+                    let mut pb = ParagraphBuilder::new(&ParagraphStyle::new(), &self.font_collection);
+                    pb.push_style(&title_style);
+                    pb.add_text(t);
+                    let mut p = pb.build();
+                    p.layout(w);
+                    p.paint(canvas, Point::new((w - p.max_width()) / 2.0, start_y - 80.0));
+                }
+
+                for btn in buttons {
+                    self.draw_button(canvas, btn);
+                }
             },
-
             _ => {
                 self.draw_dialogue(canvas, ctx, w, h);
             }
         }
+    }
 
+    pub(crate) fn draw_button(&mut self, canvas: &Canvas, btn: &Button) {
+        let mut paint = Paint::default();
+        paint.set_anti_alias(true);
+
+        let bg_color = match btn.state {
+            ButtonState::Normal => Color::from_rgb(60, 60, 60),
+            ButtonState::Hovered => Color::from_rgb(80, 80, 100),
+            ButtonState::Pressed => Color::from_rgb(40, 40, 40),
+        };
+        paint.set_color(bg_color);
+
+        canvas.draw_round_rect(btn.rect, 10.0, 10.0, &paint);
+
+        if btn.state == ButtonState::Hovered {
+            let mut stroke = Paint::default();
+            stroke.set_style(skia_safe::paint::Style::Stroke);
+            stroke.set_stroke_width(2.0);
+            stroke.set_color(Color::WHITE);
+            stroke.set_anti_alias(true);
+            canvas.draw_round_rect(btn.rect, 10.0, 10.0, &stroke);
+        }
+
+        let mut ts = TextStyle::new();
+        ts.set_color(Color::WHITE);
+        ts.set_font_size(24.0);
+        let mut ps = ParagraphStyle::new();
+        ps.set_text_align(TextAlign::Center);
+        ps.set_text_style(&ts);
+
+        let mut builder = ParagraphBuilder::new(&ps, &self.font_collection);
+        builder.push_style(&ts);
+        builder.add_text(&btn.text);
+
+        let mut paragraph = builder.build();
+        paragraph.layout(btn.rect.width());
+
+        let text_h = paragraph.height();
+        let text_y = btn.rect.y() + (btn.rect.height() - text_h) / 2.0;
+
+        paragraph.paint(canvas, Point::new(btn.rect.x(), text_y));
     }
 
     fn draw_sprites(&mut self, canvas: &Canvas, animator: &SceneAnimator, assets: &mut AssetManager) {
@@ -100,88 +155,6 @@ impl Painter {
             };
 
             canvas.draw_image_rect(&image, None, dest_rect, &paint);
-        }
-    }
-
-
-    fn draw_choice_menu(
-        &mut self,
-        canvas: &Canvas,
-        w: f32, h: f32,
-        title: Option<&str>,
-        options: &[String],
-        hit_boxes: &mut Vec<Rect>,
-        hover_index: Option<usize>
-    ) {
-        let btn_width = 500.0;
-        let btn_height = 70.0;
-        let gap = 20.0;
-
-        let total_h = options.len() as f32 * (btn_height + gap) - gap;
-        let start_y = (h - total_h) / 2.0;
-        let center_x = w / 2.0;
-
-        if let Some(t) = title {
-            // 简单绘制在菜单上方
-            let mut title_style = TextStyle::new();
-            title_style.set_color(Color::WHITE);
-            title_style.set_font_size(40.0);
-            title_style.set_font_style(FontStyle::new(Weight::BOLD, Width::NORMAL, Slant::Upright));
-
-            let mut pb = ParagraphBuilder::new(&ParagraphStyle::new(), &self.font_collection);
-            pb.push_style(&title_style);
-            pb.add_text(t);
-            let mut p = pb.build();
-            p.layout(w);
-            p.paint(canvas, Point::new((w - p.max_width()) / 2.0, start_y - 80.0));
-        }
-
-        for (i, opt_text) in options.iter().enumerate() {
-            let y = start_y + i as f32 * (btn_height + gap);
-            let rect = Rect::from_xywh(center_x - btn_width / 2.0, y, btn_width, btn_height);
-
-            // [关键] 将计算出的区域存入 hit_boxes
-            hit_boxes.push(rect);
-
-            let is_hover = hover_index == Some(i);
-
-            // 按钮背景
-            let mut paint = Paint::default();
-            paint.set_anti_alias(true);
-            if is_hover {
-                paint.set_color(Color::from_rgb(100, 149, 237)); // 悬停：矢车菊蓝
-            } else {
-                paint.set_color(Color::from_argb(220, 50, 50, 50)); // 普通：深灰
-            }
-            canvas.draw_round_rect(rect, 12.0, 12.0, &paint);
-
-            // 按钮描边
-            let mut stroke = Paint::default();
-            stroke.set_style(skia_safe::paint::Style::Stroke);
-            stroke.set_stroke_width(2.0);
-            stroke.set_color(if is_hover { Color::WHITE } else { Color::GRAY });
-            stroke.set_anti_alias(true);
-            canvas.draw_round_rect(rect, 12.0, 12.0, &stroke);
-
-            // 按钮文字 (居中)
-            let mut ts = TextStyle::new();
-            ts.set_color(Color::WHITE);
-            ts.set_font_size(28.0);
-
-            let mut ps = ParagraphStyle::new();
-            ps.set_text_align(TextAlign::Center); // 文本内部居中
-            ps.set_text_style(&ts);
-
-            let mut builder = ParagraphBuilder::new(&ps, &self.font_collection);
-            builder.push_style(&ts);
-            builder.add_text(opt_text);
-            let mut paragraph = builder.build();
-
-            paragraph.layout(btn_width);
-
-            // 计算文字垂直居中
-            let text_y = rect.y() + (btn_height - paragraph.height()) / 2.0;
-            paragraph.paint(canvas, Point::new(rect.x(), text_y));
         }
     }
 
