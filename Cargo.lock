@@ -1257,6 +1257,7 @@ dependencies = [
  "log",
  "lumina-core",
  "lumina-shared",
+ "lumina-ui",
  "serde",
  "skia-safe",
  "viviscript-core",
@@ -1264,6 +1265,10 @@ dependencies = [
  "walkdir",
  "winit",
 ]
+
+[[package]]
+name = "lumina-ui"
+version = "0.1.0"
 
 [[package]]
 name = "mach2"

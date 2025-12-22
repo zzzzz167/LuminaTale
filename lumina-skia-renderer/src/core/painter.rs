@@ -4,11 +4,9 @@ use skia_safe::{Canvas, Color, Paint, Point, Rect};
 
 use crate::core::assets::AssetManager;
 use crate::scene::animator::{RenderSprite, SceneAnimator};
-use crate::ui::{RenderContext, WidgetNode, WidgetRender};
-use crate::ui_state::{UiMode, UiState};
 
 pub struct Painter {
-    font_collection: FontCollection,
+    pub font_collection: FontCollection,
 }
 
 impl Painter {
@@ -26,33 +24,14 @@ impl Painter {
         canvas: &Canvas,
         ctx: &Ctx,
         animator: &SceneAnimator,
-        ui_state: &mut UiState,
         window_size: (f32, f32),
         assets: &mut AssetManager,
-        ui_root: Option<&WidgetNode>,
     ) {
         canvas.clear(Color::BLACK);
 
         self.draw_sprites(canvas, animator, assets);
 
-        if ui_root.is_none() {
-            self.draw_dialogue(canvas, ctx, window_size.0, window_size.1);
-        }
-
-        let mut render_ctx = RenderContext {
-            canvas,
-            fonts: &self.font_collection,
-            assets,
-        };
-
-        if let Some(root) = ui_root {
-            root.render(&mut render_ctx);
-        }
-
-        if let UiMode::Choice { root, .. } = &ui_state.mode {
-            // 确保选项菜单在最上层
-            root.render(&mut render_ctx);
-        }
+        self.draw_dialogue(canvas, ctx, window_size.0, window_size.1);
     }
 
     fn draw_sprites(&mut self, canvas: &Canvas, animator: &SceneAnimator, assets: &mut AssetManager) {

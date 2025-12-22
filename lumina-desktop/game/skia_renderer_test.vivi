@@ -3,7 +3,7 @@ character ch2 name="鲍勃"  image_tag="ch2"
 
 label init
 scene bg demo
-play music bgm_1 loop
+-- play music bgm_1 loop
 : 动画测试开始。请确保 assets 目录下有 ch1.png 和 ch2.png。
 
 : [测试 1] 爱丽丝应该从左侧【淡入 (fade_in)】出现

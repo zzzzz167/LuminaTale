@@ -1,28 +1,30 @@
 use crate::core::{Painter, AssetManager, AudioPlayer};
 use crate::vk_utils::context::VulkanRenderContext;
 use crate::vk_utils::renderer::VulkanRenderer;
-use crate::ui_state::{UiState, UiMode};
 use crate::scene::{AppScene, SceneAnimator};
 use crate::config::WindowConfig;
-use crate::ui::{UiAction, WidgetNode};
+use crate::ui::UiDrawer;
 
 use winit::{
     event_loop::{ControlFlow, EventLoop, ActiveEventLoop},
     application::ApplicationHandler,
     window::{Window, WindowId},
-    event::{WindowEvent, KeyEvent, ElementState, MouseButton},
-    keyboard::{PhysicalKey, KeyCode},
+    event::{WindowEvent, ElementState, MouseButton},
     dpi::PhysicalSize
 };
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use skia_safe::{Point, Rect};
-
+use log::debug;
 use lumina_shared;
 use viviscript_core::ast::Script;
 use lumina_core::{Ctx, OutputEvent};
 use lumina_core::event::InputEvent;
 use lumina_core::renderer::driver::ExecutorHandle;
+use lumina_ui::{Rect, input::UiContext};
+
+// 设计分辨率
+const DESIGN_WIDTH: f32 = 1920.0;
+const DESIGN_HEIGHT: f32 = 1080.0;
 
 pub struct SkiaRenderer {
     render_ctx: VulkanRenderContext,
@@ -35,9 +37,15 @@ pub struct SkiaRenderer {
     game_script: Arc<Script>,
     state: AppScene,
 
+    ui_ctx: UiContext,
+
+    physical_cursor_pos: (f32, f32),
+    scale_factor: f64,
+
+    active_choices: Option<(Option<String>, Vec<String>)>,
+
     gc_timer: Instant,
     last_frame: Instant,
-    cursor_pos: Point,
 }
 
 impl SkiaRenderer {
@@ -48,13 +56,9 @@ impl SkiaRenderer {
         let initial_state = if cfg.debug.skip_main_menu {
             let mut ctx = Ctx::default();
             let driver = ExecutorHandle::new(&mut ctx, script.clone());
-            AppScene::InGame {
-                ctx,
-                driver,
-                ui_state: UiState::default()
-            }
+            AppScene::InGame { ctx, driver, }
         } else {
-            AppScene::default()
+            AppScene::MainMenu
         };
 
         Self {
@@ -68,9 +72,13 @@ impl SkiaRenderer {
             game_script: script,
             state: initial_state,
 
+            ui_ctx: UiContext::new(),
+            physical_cursor_pos: (0.0, 0.0),
+            scale_factor: 1.0,
+            active_choices: None,
+
             gc_timer: Instant::now(),
             last_frame: Instant::now(),
-            cursor_pos: Point::new(0.0, 0.0),
         }
     }
 
@@ -86,80 +94,40 @@ impl SkiaRenderer {
         }
     }
 
-    fn handle_ui_action(&mut self, action: UiAction, event_loop: &ActiveEventLoop) {
-        match action {
-            // FIXME: 这块的架构太奇怪了, 应该重新设计
-            UiAction::Quit => event_loop.exit(),
 
-            UiAction::OpenMenu(name) => {
-                if name == "Settings" {
-                    let prev = std::mem::replace(&mut self.state, AppScene::default());
-                    self.state = AppScene::new_settings(prev);
-                }
-            },
-
-            UiAction::Back => {
-                let prev_state = if let AppScene::Settings { prev_scene, .. } = &mut self.state {
-                    Some(std::mem::replace(prev_scene.as_mut(), AppScene::default()))
-                } else {
-                    None
-                };
-
-                if let Some(prev) = prev_state {
-                    self.state = prev;
-                }
-            },
-
-            UiAction::RunScript(cmd) => {
-                if cmd == "StartGame" {
-                    log::info!("Action: Start Game");
-                    let mut ctx = Ctx::default();
-                    let driver = ExecutorHandle::new(&mut ctx, self.game_script.clone());
-
-                    self.state = AppScene::InGame {
-                        ctx,
-                        driver,
-                        ui_state: UiState::default()
-                    };
-                }
-            },
-
-            UiAction::ScriptChoice(idx) => {
-                if let AppScene::InGame { ctx, driver, ui_state } = &mut self.state {
-                    driver.feed(ctx, InputEvent::ChoiceMade { index: idx });
-                    ui_state.clear();
-                }
-            },
-            UiAction::AdjustVolume(key, val) => {
-                log::debug!("Volume [{}] -> {:.2}", key, val);
-                // TODO: 接入 AudioPlayer 和 Config
-                // FIXME: 这块的处理很不好其实
-                // self.audio_player.set_volume(key, val);
-            },
-
-            UiAction::ToggleConfig(key) => {
-                log::debug!("Toggle Config [{}]", key);
-                // TODO: 接入 Config
-            },
-            _ => {}
-        }
+    fn to_logical(physical_x: f32, physical_y: f32, scale: f32, off_x: f32, off_y: f32) -> (f32, f32) {
+        if scale == 0.0 { return (0.0, 0.0); }
+        (
+            (physical_x - off_x) / scale,
+            (physical_y - off_y) / scale
+        )
     }
 
     fn update_ingame(&mut self, dt: f32, event_loop: &ActiveEventLoop) {
-        if let AppScene::InGame {ctx, driver, ui_state} = &mut self.state {
+        if let AppScene::InGame {ctx, driver} = &mut self.state {
             let mut waiting = false;
-            for _ in 0..1000 {
+            for _ in 0..100 {
                 waiting = driver.step(ctx);
-                if waiting { break; } // 遇到 WaitInput 或 WaitChoice，停止执行，等待渲染和输入
+                if waiting { break; }
             }
 
-            for event in ctx.drain() {
+            // Make the compiler happy.
+            let events: Vec<_> = ctx.drain().into_iter().collect();
+
+            let get_sprite_info = |target: &str| -> (Option<String>, Option<Vec<String>>) {
+                if let Some(layer) = ctx.layer_record.layer.get("master") {
+                    if let Some(s) = layer.iter().find(|s| s.target == target) {
+                        return (s.position.clone(), Some(s.attrs.clone()));
+                    }
+                }
+                (None, None)
+            };
+
+            for event in events {
                 match event {
                     OutputEvent::PlayAudio { channel, path, fade_in, volume, looping } => {
                         if let Some(full_path) = self.assets.get_audio_path(&path) {
                             self.audio_player.play(&channel, full_path, volume, fade_in, looping);
-                        } else {
-                            log::error!("Audio not found: {}", path);
                         }
                     },
                     OutputEvent::StopAudio { channel, fade_out } => {
@@ -169,28 +137,16 @@ impl SkiaRenderer {
                         let texture_name = ctx.characters.get(&target)
                             .and_then(|ch| ch.image_tag.clone())
                             .unwrap_or_else(|| target.clone());
-                        let mut pos_str = None;
-                        let mut attrs = Vec::new();
-                        if let Some(layer) = ctx.layer_record.layer.get("master") {
-                            if let Some(sprite) = layer.iter().find(|s| s.target == target) {
-                                pos_str = sprite.position.as_deref();
-                                attrs = sprite.attrs.clone();
-                            }
-                        }
-                        self.animator.handle_new_sprite(target, texture_name, transition, pos_str, attrs);
+                        let (pos_str, attrs) = get_sprite_info(&target);
+                        // 如果 attrs 是 None，给个空 Vec
+                        let attrs = attrs.unwrap_or_default();
+
+                        self.animator.handle_new_sprite(target, texture_name, transition, pos_str.as_deref(), attrs);
                     },
                     OutputEvent::UpdateSprite { target, transition } => {
-                        let mut pos_str = None;
-                        let mut new_attrs = None;
-
-                        if let Some(layer) = ctx.layer_record.layer.get("master") {
-                            if let Some(sprite) = layer.iter().find(|s| s.target == target) {
-                                pos_str = sprite.position.as_deref();
-                                new_attrs = Some(sprite.attrs.clone());
-                            }
-                        }
-
-                        self.animator.handle_update_sprite(target, transition, pos_str, new_attrs);
+                        // ✅ 修复：复用 helper 获取最新位置
+                        let (pos_str, attrs) = get_sprite_info(&target);
+                        self.animator.handle_update_sprite(target, transition, pos_str.as_deref(), attrs);
                     },
                     OutputEvent::HideSprite { target, transition } => {
                         self.animator.handle_hide_sprite(target, transition);
@@ -210,18 +166,16 @@ impl SkiaRenderer {
                         self.animator.handle_new_scene(bg_name, transition);
                     },
                     OutputEvent::ShowChoice { title, options } => {
-                        log::info!("[UI] Entering Choice Mode");
-                        ui_state.set_choices(title, options);
+                        self.active_choices = Some((title, options));
                     },
                     OutputEvent::ShowDialogue { .. } | OutputEvent::ShowNarration { .. } => {
-                        if ui_state.is_choosing() { ui_state.clear(); }
+                        self.active_choices = None;
                     },
                     OutputEvent::End => event_loop.exit(),
                     _ => {}
                 }
             }
         }
-
         self.animator.update(dt);
     }
 }
@@ -229,8 +183,6 @@ impl SkiaRenderer {
 impl ApplicationHandler for SkiaRenderer {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let cfg: WindowConfig = lumina_shared::config::get("window");
-        log::info!("Window Config Loaded: {}x{} VSync:{}", cfg.width, cfg.height, cfg.vsync);
-
         let window_attributes = Window::default_attributes()
             .with_title(&cfg.title)
             .with_inner_size(PhysicalSize::new(cfg.width, cfg.height))
@@ -238,13 +190,9 @@ impl ApplicationHandler for SkiaRenderer {
 
         let window = Arc::new(event_loop.create_window(window_attributes).unwrap());
 
-        let size = window.inner_size();
-        let scale_factor = window.scale_factor();
-        let logical_size = size.to_logical::<f32>(scale_factor);
+        self.scale_factor = window.scale_factor();
 
-        log::debug!("Window Init: Physical {:?}, Logical {:?}", size, logical_size);
-        self.animator.resize(logical_size.width, logical_size.height);
-
+        self.animator.resize(DESIGN_WIDTH, DESIGN_HEIGHT);
         self.renderer = Some(self.render_ctx.renderer_for_window(event_loop, window.clone(), cfg.vsync));
     }
 
@@ -252,71 +200,162 @@ impl ApplicationHandler for SkiaRenderer {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
 
-            WindowEvent::Resized(size) => {
+            WindowEvent::Resized(_) => {
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer.invalidate_swapchain();
-
-                    let scale_factor = renderer.window.scale_factor();
-                    let logical_size = size.to_logical::<f32>(scale_factor);
-
-                    self.animator.resize(logical_size.width, logical_size.height);
                     self.request_redraw();
                 }
             }
+            WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                self.scale_factor = scale_factor;
+                self.request_redraw();
+            },
+            // 1. 鼠标移动：记录物理坐标
+            WindowEvent::CursorMoved { position, .. } => {
+                // 注意：这里必须是 f32
+                self.physical_cursor_pos = (position.x as f32, position.y as f32);
+                self.request_redraw();
+            },
+
+            // 2. 点击：记录状态
+            WindowEvent::MouseInput { state, button: MouseButton::Left, .. } => {
+                let pressed = state == ElementState::Pressed;
+                self.ui_ctx.mouse_pressed = pressed && !self.ui_ctx.mouse_held;
+                self.ui_ctx.mouse_held = pressed;
+                self.request_redraw();
+            },
 
             WindowEvent::RedrawRequested => {
-                if let Some(renderer) = self.renderer.as_mut() {
-                    renderer.prepare_swapchain();
-                }
-
+                // 先更新逻辑，避免借用冲突
                 let now = Instant::now();
                 let dt = now.duration_since(self.last_frame).as_secs_f32();
                 self.last_frame = now;
-
-                match &mut self.state {
-                    AppScene::InGame { .. } => self.update_ingame(dt, event_loop),
-                    _=> {self.animator.update(dt);}
-                };
+                self.update_ingame(dt, event_loop);
 
                 if let Some(renderer) = self.renderer.as_mut() {
+                    renderer.prepare_swapchain();
 
-                    // --- 核心绘制 ---
-                    // 必须先解构借用，避免在闭包中同时借用 &mut self.renderer 和 &mut self.painter
+                    let dpi = self.scale_factor as f32;
+
+                    let ui_ctx_ref = &mut self.ui_ctx;
+                    let state_ref = &mut self.state;
+                    let game_script_ref = &self.game_script;
+                    let active_choices_ref = &mut self.active_choices;
                     let painter = &mut self.painter;
                     let assets = &mut self.assets;
                     let animator = &self.animator;
-                    let state = &mut self.state;
+
+                    // 获取刚才记录的物理坐标
+                    let (mx, my) = self.physical_cursor_pos;
 
                     renderer.draw_and_present(|canvas, size| {
-                        let mut dummy_ctx = Ctx::default();
-                        let mut dummy_ui_state = UiState::default();
+                        // A. 计算并应用黑边适配
+                        let win_w = size.width as f32;
+                        let win_h = size.height as f32;
 
-                        let win_rect = Rect::from_wh(size.width as f32, size.height as f32);
-
-                        let (ctx, ui_state, ui_root) = match state {
-                            AppScene::InGame { ctx, ui_state, .. } => {
-                                (ctx, ui_state, None)
-                            },
-                            AppScene::MainMenu { root, .. } => {
-                                root.layout(win_rect);
-                                (&mut dummy_ctx, &mut dummy_ui_state, Some(root as &WidgetNode))
-                            },
-                            AppScene::Settings { root, .. } => {
-                                root.layout(win_rect);
-                                (&mut dummy_ctx, &mut dummy_ui_state, Some(root as &WidgetNode))
-                            },
+                        // B. 计算逻辑坐标
+                        let (adj_mx, adj_my) = if dpi > 1.0 {
+                            (mx / dpi, my / dpi)
+                        } else {
+                            (mx, my)
                         };
 
-                        painter.paint(
-                            canvas,
-                            ctx,
-                            animator,
-                            ui_state,
-                            (size.width, size.height),
-                            assets,
-                            ui_root
-                        );
+                        // 计算布局缩放
+                        let scale_x = win_w / DESIGN_WIDTH;
+                        let scale_y = win_h / DESIGN_HEIGHT;
+                        let scale = scale_x.min(scale_y);
+
+                        let off_x = (win_w - DESIGN_WIDTH * scale) / 2.0;
+                        let off_y = (win_h - DESIGN_HEIGHT * scale) / 2.0;
+
+                        // C. 计算最终逻辑坐标 (传入调整后的鼠标坐标)
+                        let (lx, ly) = SkiaRenderer::to_logical(adj_mx, adj_my, scale, off_x, off_y);
+
+                        // 更新 UI 上下文
+                        ui_ctx_ref.update(lx, ly, ui_ctx_ref.mouse_pressed, ui_ctx_ref.mouse_held);
+
+                        // C. Skia 变换 (视觉层)
+                        canvas.save();
+                        canvas.translate(skia_safe::Vector::new(off_x, off_y));
+                        canvas.scale((scale, scale));
+
+                        // 裁剪显示区域
+                        canvas.clip_rect(skia_safe::Rect::new(0.0, 0.0, DESIGN_WIDTH, DESIGN_HEIGHT), None, None);
+
+                        // D. 绘制逻辑 (坐标系 1920x1080)
+                        match state_ref {
+                            AppScene::MainMenu => {
+                                canvas.clear(skia_safe::Color::BLACK);
+                                let screen = Rect::new(0.0, 0.0, DESIGN_WIDTH, DESIGN_HEIGHT);
+                                let mut ui = UiDrawer::new(canvas, ui_ctx_ref, &painter.font_collection);
+
+                                let menu_area = screen.center(400.0, 500.0);
+                                let (title_rect, content) = menu_area.split_top(150.0);
+                                ui.label("Lumina Tale", title_rect, 60.0, skia_safe::Color::WHITE);
+
+                                let (btn1, rest) = content.split_top(80.0);
+                                let (btn2, rest) = rest.split_top(80.0);
+                                let (btn3, _)    = rest.split_top(80.0);
+
+                                if ui.button("Start Game", btn1.shrink(10.0)) {
+                                    log::info!("Starting Game...");
+                                    let mut ctx = Ctx::default();
+                                    let driver = ExecutorHandle::new(&mut ctx, game_script_ref.clone());
+                                    *state_ref = AppScene::InGame { ctx, driver };
+                                    *active_choices_ref = None;
+                                }
+                                if ui.button("Settings", btn2.shrink(10.0)) {
+                                    // Settings
+                                }
+                                if ui.button("Quit", btn3.shrink(10.0)) {
+                                    std::process::exit(0);
+                                }
+                            },
+                            AppScene::InGame { ctx, driver } => {
+                                let screen = Rect::new(0.0, 0.0, DESIGN_WIDTH, DESIGN_HEIGHT);
+
+                                painter.paint(canvas, ctx, animator, (DESIGN_WIDTH, DESIGN_HEIGHT), assets);
+
+                                let mut ui = UiDrawer::new(canvas, ui_ctx_ref, &painter.font_collection);
+
+                                // 临时变量存储点击结果
+                                let mut choice_made_index = None;
+
+                                if let Some((title, options)) = active_choices_ref {
+                                    let mut p = skia_safe::Paint::default();
+                                    p.set_color(skia_safe::Color::from_argb(200, 0, 0, 0));
+                                    canvas.draw_rect(skia_safe::Rect::new(0.0, 0.0, DESIGN_WIDTH, DESIGN_HEIGHT), &p);
+
+                                    let menu = screen.center(600.0, 600.0);
+                                    let (header, mut body) = menu.split_top(100.0);
+                                    if let Some(t) = title { ui.label(t, header, 40.0, skia_safe::Color::WHITE); }
+
+                                    for (idx, txt) in options.iter().enumerate() {
+                                        let (btn, rest) = body.split_top(80.0);
+                                        body = rest;
+                                        if ui.button(txt, btn.shrink(10.0)) {
+                                            choice_made_index = Some(idx);
+                                        }
+                                    }
+                                } else {
+                                    if ui_ctx_ref.mouse_pressed {
+                                        driver.feed(ctx, InputEvent::Continue);
+                                    }
+                                }
+
+                                // 延迟处理点击，避免借用冲突
+                                if let Some(idx) = choice_made_index {
+                                    driver.feed(ctx, InputEvent::ChoiceMade{index: idx});
+                                    *active_choices_ref = None;
+                                }
+                            },
+                            _ => {}
+                        }
+
+                        canvas.restore();
                     });
+
+                    self.ui_ctx.mouse_pressed = false;
 
                     if self.gc_timer.elapsed().as_secs() >= 5 {
                         self.assets.gc(Duration::from_secs(10));
@@ -325,102 +364,7 @@ impl ApplicationHandler for SkiaRenderer {
                     renderer.window.request_redraw();
                 }
             },
-
-            WindowEvent::CursorMoved { position, .. } => {
-                let scale = self.renderer.as_ref().map(|r| r.window.scale_factor()).unwrap_or(1.0);
-                self.cursor_pos = Point::new(position.x as f32 / scale as f32, position.y as f32 / scale as f32);
-
-                let mut action_to_perform = UiAction::None;
-
-                match &mut self.state {
-                    AppScene::MainMenu { root } => {
-                        action_to_perform = root.on_mouse_move(self.cursor_pos);
-                    },
-                    AppScene::Settings { root, .. } => {
-                        action_to_perform = root.on_mouse_move(self.cursor_pos);
-                    },
-                    AppScene::InGame { ui_state, .. } => {
-                        if let UiMode::Choice { root, .. } = &mut ui_state.mode {
-                            action_to_perform = root.on_mouse_move(self.cursor_pos);
-                        }
-                    }
-                }
-                if action_to_perform != UiAction::None {
-                    self.handle_ui_action(action_to_perform, event_loop);
-                }
-                self.request_redraw();
-            },
-
-            WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } => {
-                let mut action_to_perform = UiAction::None;
-
-                match &mut self.state {
-                    AppScene::MainMenu { root } => {
-                        action_to_perform = root.on_click(self.cursor_pos);
-                    },
-                    AppScene::Settings { root, .. } => {
-                        action_to_perform = root.on_click(self.cursor_pos);
-                    },
-                    AppScene::InGame { ctx, driver, ui_state } => {
-                        // 1. 先看有没有点到 UI (选项)
-                        if let UiMode::Choice { root, .. } = &mut ui_state.mode {
-                            action_to_perform = root.on_click(self.cursor_pos);
-                        }
-
-                        // 2. 没点到 UI，就是普通交互 (继续对话)
-                        if action_to_perform == UiAction::None && !ui_state.is_choosing() {
-                            driver.feed(ctx, InputEvent::Continue);
-                            self.request_redraw();
-                        }
-                    }
-                }
-
-                if action_to_perform != UiAction::None {
-                    self.handle_ui_action(action_to_perform, event_loop);
-                    self.request_redraw();
-                }
-            },
-            WindowEvent::MouseInput { state: ElementState::Released, button: MouseButton::Left, .. } => {
-                match &mut self.state {
-                    AppScene::MainMenu { root } => root.on_mouse_release(),
-                    AppScene::Settings { root, .. } => root.on_mouse_release(),
-                    AppScene::InGame { ui_state, .. } => {
-                        if let UiMode::Choice { root, .. } = &mut ui_state.mode {
-                            root.on_mouse_release();
-                        }
-                    }
-                }
-            },
-
-            // TODO: 完善此处对键盘输入的处理
-            /*
-            WindowEvent::KeyboardInput {
-                event: KeyEvent {
-                    state: ElementState::Pressed,
-                    physical_key: PhysicalKey::Code(KeyCode::Space),
-                    ..
-                },
-                ..
-            } => {
-                match &mut self.state {
-                    AppScene::MainMenu { .. } => {
-                    },
-                    AppScene::InGame { ctx, driver ,ui_state, .. } => {
-                        if !ui_state.is_choosing() {
-                            driver.feed(ctx, InputEvent::Continue);
-                            self.request_redraw();
-                        }
-                    }
-                }
-            }
-            */
-
-            _ => {
-                // 持续刷新以播放动画或响应调整
-                if let Some(renderer) = self.renderer.as_ref() {
-                    renderer.window.request_redraw();
-                }
-            }
+            _ => {}
         }
     }
 }
