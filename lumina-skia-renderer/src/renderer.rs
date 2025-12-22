@@ -14,13 +14,17 @@ use winit::{
 };
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use log::debug;
 use lumina_shared;
 use viviscript_core::ast::Script;
 use lumina_core::{Ctx, OutputEvent};
 use lumina_core::event::InputEvent;
 use lumina_core::renderer::driver::ExecutorHandle;
-use lumina_ui::{Rect, input::UiContext};
+use lumina_ui::{
+    Rect,
+    input::UiContext,
+    Color,
+    widgets::{Button, Label, Slider}
+};
 
 // 设计分辨率
 const DESIGN_WIDTH: f32 = 1920.0;
@@ -46,6 +50,8 @@ pub struct SkiaRenderer {
 
     gc_timer: Instant,
     last_frame: Instant,
+
+    test_volume: f32,
 }
 
 impl SkiaRenderer {
@@ -79,6 +85,8 @@ impl SkiaRenderer {
 
             gc_timer: Instant::now(),
             last_frame: Instant::now(),
+
+            test_volume: 0.5,
         }
     }
 
@@ -250,8 +258,8 @@ impl ApplicationHandler for SkiaRenderer {
 
                     renderer.draw_and_present(|canvas, size| {
                         // A. 计算并应用黑边适配
-                        let win_w = size.width as f32;
-                        let win_h = size.height as f32;
+                        let win_w = size.width;
+                        let win_h = size.height;
 
                         // B. 计算逻辑坐标
                         let (adj_mx, adj_my) = if dpi > 1.0 {
@@ -289,26 +297,43 @@ impl ApplicationHandler for SkiaRenderer {
                                 let screen = Rect::new(0.0, 0.0, DESIGN_WIDTH, DESIGN_HEIGHT);
                                 let mut ui = UiDrawer::new(canvas, ui_ctx_ref, &painter.font_collection);
 
-                                let menu_area = screen.center(400.0, 500.0);
+                                let menu_area = screen.center(400.0, 600.0);
                                 let (title_rect, content) = menu_area.split_top(150.0);
-                                ui.label("Lumina Tale", title_rect, 60.0, skia_safe::Color::WHITE);
+
+                                Label::new("Lumina Tale")
+                                    .size(60.0)
+                                    .show(&mut ui, title_rect);
 
                                 let (btn1, rest) = content.split_top(80.0);
+                                let (slider_area, rest) = rest.split_top(60.0);
                                 let (btn2, rest) = rest.split_top(80.0);
                                 let (btn3, _)    = rest.split_top(80.0);
 
-                                if ui.button("Start Game", btn1.shrink(10.0)) {
+                                if Button::new("Start Game").show(&mut ui, btn1.shrink(10.0)) {
                                     log::info!("Starting Game...");
                                     let mut ctx = Ctx::default();
                                     let driver = ExecutorHandle::new(&mut ctx, game_script_ref.clone());
                                     *state_ref = AppScene::InGame { ctx, driver };
                                     *active_choices_ref = None;
                                 }
-                                if ui.button("Settings", btn2.shrink(10.0)) {
+
+                                let test_volume_ref = &mut self.test_volume;
+                                if Slider::new(test_volume_ref, 0.0, 1.0)
+                                    .show(&mut ui, slider_area.shrink(10.0))
+                                {
+                                    log::debug!("Volume changed to: {:.2}", test_volume_ref);
+                                }
+
+                                if Button::new("Setting").show(&mut ui, btn2.shrink(10.0)) {
                                     // Settings
                                 }
-                                if ui.button("Quit", btn3.shrink(10.0)) {
-                                    std::process::exit(0);
+                                if Button::new("Quit")
+                                    .transparent()
+                                    .text_color(Color::RED)
+                                    .stroke(Color::RED, 1.0) // 红边框
+                                    .show(&mut ui, btn3.shrink(10.0))
+                                {
+                                    event_loop.exit();
                                 }
                             },
                             AppScene::InGame { ctx, driver } => {
@@ -328,12 +353,14 @@ impl ApplicationHandler for SkiaRenderer {
 
                                     let menu = screen.center(600.0, 600.0);
                                     let (header, mut body) = menu.split_top(100.0);
-                                    if let Some(t) = title { ui.label(t, header, 40.0, skia_safe::Color::WHITE); }
+                                    if let Some(t) = title {
+                                        Label::new(t).show(&mut ui, header);
+                                    }
 
                                     for (idx, txt) in options.iter().enumerate() {
                                         let (btn, rest) = body.split_top(80.0);
                                         body = rest;
-                                        if ui.button(txt, btn.shrink(10.0)) {
+                                        if Button::new(txt).show(&mut ui, btn.shrink(10.0)) {
                                             choice_made_index = Some(idx);
                                         }
                                     }
