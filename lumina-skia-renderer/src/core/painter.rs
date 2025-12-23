@@ -1,37 +1,25 @@
 use lumina_core::Ctx;
-use skia_safe::textlayout::{FontCollection, ParagraphBuilder, ParagraphStyle, TextStyle};
-use skia_safe::{Canvas, Color, Paint, Point, Rect};
+use skia_safe::{Canvas, Paint, Rect};
+use crate::core::{animator::{RenderSprite, SceneAnimator}, AssetManager};
 
-use crate::core::assets::AssetManager;
-use crate::scene::animator::{RenderSprite, SceneAnimator};
-
-pub struct Painter {
-    pub font_collection: FontCollection,
-}
+pub struct Painter {}
 
 impl Painter {
     pub fn new() -> Self{
-        let mut font_collection = FontCollection::new();
-        font_collection.set_default_font_manager(skia_safe::FontMgr::default(), None);
-
-        Self {
-            font_collection,
-        }
+        Self {}
     }
 
     pub fn paint(
         &mut self,
         canvas: &Canvas,
-        ctx: &Ctx,
+        _ctx: &Ctx,
         animator: &SceneAnimator,
-        window_size: (f32, f32),
+        _window_size: (f32, f32),
         assets: &mut AssetManager,
     ) {
-        canvas.clear(Color::BLACK);
+        //canvas.clear(Color::BLACK);
 
         self.draw_sprites(canvas, animator, assets);
-
-        self.draw_dialogue(canvas, ctx, window_size.0, window_size.1);
     }
 
     fn draw_sprites(&mut self, canvas: &Canvas, animator: &SceneAnimator, assets: &mut AssetManager) {
@@ -74,45 +62,6 @@ impl Painter {
             };
 
             canvas.draw_image_rect(&image, None, dest_rect, &paint);
-        }
-    }
-
-    fn draw_dialogue(&mut self, canvas: &Canvas, ctx: &Ctx, w: f32, h: f32) {
-        if let Some(last_dialogue) = ctx.dialogue_history.last() {
-            let ui_height = h * 0.3;
-            let ui_rect = Rect::new(0.0, h - ui_height, w, h);
-
-            let mut bg_paint = Paint::default();
-            bg_paint.set_color(Color::from_argb(200, 0, 0, 0));
-            canvas.draw_rect(ui_rect, &bg_paint);
-
-            let mut ts = TextStyle::new();
-            ts.set_color(Color::WHITE);
-            ts.set_font_size(24.0);
-            let mut ps = ParagraphStyle::new();
-            ps.set_text_style(&ts);
-
-            // Speaker Name
-            if let Some(name) = &last_dialogue.speaker {
-                let mut name_ts = ts.clone();
-                name_ts.set_color(Color::YELLOW);
-                name_ts.set_font_size(30.0);
-
-                let mut pb = ParagraphBuilder::new(&ps, &self.font_collection);
-                pb.push_style(&name_ts);
-                pb.add_text(name);
-                let mut p = pb.build();
-                p.layout(w);
-                p.paint(canvas, Point::new(40.0, h - ui_height + 30.0));
-            }
-
-            // Dialogue Text
-            let mut pb = ParagraphBuilder::new(&ps, &self.font_collection);
-            pb.push_style(&ts);
-            pb.add_text(&last_dialogue.text);
-            let mut p = pb.build();
-            p.layout(w - 100.0);
-            p.paint(canvas, Point::new(60.0, h - ui_height + 80.0));
         }
     }
 }

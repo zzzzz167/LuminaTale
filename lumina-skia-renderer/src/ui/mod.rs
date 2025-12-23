@@ -4,7 +4,7 @@ use skia_safe::textlayout::{FontCollection, ParagraphBuilder, ParagraphStyle, Te
 use skia_safe::{Canvas, Paint, Point, Rect as SkRect};
 
 pub struct UiDrawer<'a> {
-    canvas: &'a Canvas,
+    pub(crate) canvas: &'a Canvas,
     input: &'a UiContext,
     fonts: &'a FontCollection,
 }
