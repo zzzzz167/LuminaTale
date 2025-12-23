@@ -5,7 +5,7 @@ use crate::core::SceneAnimator;
 use lumina_core::{Ctx, OutputEvent};
 use lumina_core::event::InputEvent;
 use lumina_core::renderer::driver::ExecutorHandle;
-use lumina_ui::{Rect, Color, UiRenderer, Alignment};
+use lumina_ui::{Rect, Color, UiRenderer, Alignment, GradientDirection};
 use lumina_ui::widgets::{Button, Label, Panel};
 use winit::event_loop::ActiveEventLoop;
 
@@ -146,13 +146,13 @@ impl Screen for InGameScreen {
         ScreenTransition::None
     }
 
-    fn draw(&mut self, ui: &mut UiDrawer, painter: &mut Painter, assets: &mut AssetManager, rect: Rect, ctx: &mut Ctx) {
+    fn draw(&mut self, ui: &mut UiDrawer, painter: &mut Painter, rect: Rect, ctx: &mut Ctx) {
         // ============================
         // 1. 绘制场景 (Layer 0)
         // ============================
         // 调用 Painter 画背景和立绘。
         // Painter 应该只需要知道在这个 rect 范围内画画
-        painter.paint(ui.canvas, ctx, &self.animator, (rect.w, rect.h), assets);
+        painter.paint(ui.canvas, ctx, &self.animator, (rect.w, rect.h), ui.assets);
 
         // ============================
         // 2. 布局 UI (Rect Cut)
@@ -164,10 +164,13 @@ impl Screen for InGameScreen {
         // ============================
         if let Some(last_dialogue) = ctx.dialogue_history.last() {
             // 背景板
-            let top_color = Color::rgba(20, 60, 70, 220);    // 深青色
-            let bottom_color = Color::rgba(40, 180, 200, 180); // 亮青色
-
-            ui.draw_vertical_gradient(bottom_area, top_color, bottom_color);
+            Panel::new()
+                .gradient(
+                    GradientDirection::Vertical,
+                    Color::rgba(20, 60, 70, 220),    // 深青色
+                    Color::rgba(40, 180, 200, 180)   // 亮青色
+                )
+                .show(ui, bottom_area);
 
             let dialogue_area = bottom_area.shrink(30.0);
 

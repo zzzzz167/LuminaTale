@@ -1,42 +1,59 @@
-use crate::{Rect, Color, UiRenderer, Alignment};
+use crate::{Rect, Color, UiRenderer, Alignment, Style, Background, Border};
 use crate::input::Interaction;
 
 pub struct Button<'a> {
     text: &'a str,
-    bg_color: Option<Color>,
-    bg_hover: Option<Color>,
-    bg_active: Option<Color>,
+    
+    normal_style: Style,
+    hover_style: Style,
+    active_style: Style,
+
     text_color: Color,
-    border: Option<(Color, f32)>,
     font_size: f32,
+    font: Option<&'a str>,
 }
 
 impl<'a> Button<'a> {
     pub fn new(text: &'a str) -> Self {
+        // --- 默认样式初始化 ---
+        // 默认：深灰背景
+        let mut normal = Style::default();
+        normal.background = Background::Solid(Color::DARK_GRAY);
+
+        // 悬停：浅灰背景
+        let mut hover = normal.clone();
+        hover.background = Background::Solid(Color::GRAY);
+
+        // 按下：深黑背景
+        let mut active = normal.clone();
+        active.background = Background::Solid(Color::rgb(20, 20, 20));
+
         Self {
             text,
-            bg_color: Some(Color::DARK_GRAY),
-            bg_hover: Some(Color::GRAY),
-            bg_active: Some(Color::rgb(20, 20, 20)),
+            normal_style: normal,
+            hover_style: hover,
+            active_style: active,
             text_color: Color::WHITE,
-            border: None,
             font_size: 24.0,
+            font: None,
         }
     }
 
-    /// 设置基础背景色 (传入 Color::TRANSPARENT 可透明)
+    // ==========================================
+    //  快捷配置 (同时应用到所有状态，或设置基础态)
+    // ==========================================
+
+    /// 设置基础背景色
     pub fn fill(mut self, color: Color) -> Self {
-        self.bg_color = Some(color);
-        // 如果用户只设了 fill，我们智能地自动设置 hover 颜色（简单的变亮/变暗逻辑可以以后加）
-        // 这里简单处理：重置 hover/active 以免颜色不搭，或者让用户自己设
+        self.normal_style.background = Background::Solid(color);
         self
     }
 
-    /// 彻底透明 (无背景)
+    /// 设置为透明按钮
     pub fn transparent(mut self) -> Self {
-        self.bg_color = None;
-        self.bg_hover = Some(Color::rgba(255, 255, 255, 30)); // 悬停时微微发白
-        self.bg_active = Some(Color::rgba(255, 255, 255, 60));
+        self.normal_style.background = Background::None;
+        self.hover_style.background = Background::Solid(Color::rgba(255, 255, 255, 30)); // 微微发亮
+        self.active_style.background = Background::Solid(Color::rgba(255, 255, 255, 60));
         self
     }
 
@@ -52,37 +69,77 @@ impl<'a> Button<'a> {
         self
     }
 
-    /// 添加边框
-    pub fn stroke(mut self, color: Color, width: f32) -> Self {
-        self.border = Some((color, width));
+    /// 设置字体 (例如 "pixel", "msyh")
+    pub fn font(mut self, font_name: &'a str) -> Self {
+        self.font = Some(font_name);
         self
     }
 
+    /// 设置边框 (同时应用到所有状态，保持形状一致)
+    pub fn stroke(mut self, color: Color, width: f32) -> Self {
+        let border = Border { color, width, radius: self.normal_style.border.radius };
+        self.normal_style.border = border;
+        self.hover_style.border = border;
+        self.active_style.border = border;
+        self
+    }
+
+    /// 设置圆角 (同时应用到所有状态)
+    pub fn rounded(mut self, radius: f32) -> Self {
+        self.normal_style.border.radius = radius;
+        self.hover_style.border.radius = radius;
+        self.active_style.border.radius = radius;
+        self
+    }
+
+    // ==========================================
+    //  高级自定义 (分别设置各状态样式)
+    // ==========================================
+
+    pub fn style_normal(mut self, style: Style) -> Self {
+        self.normal_style = style;
+        self
+    }
+
+    pub fn style_hover(mut self, style: Style) -> Self {
+        self.hover_style = style;
+        self
+    }
+
+    pub fn style_active(mut self, style: Style) -> Self {
+        self.active_style = style;
+        self
+    }
+
+    // ==========================================
+    //  渲染逻辑
+    // ==========================================
+
     pub fn show(self, ui: &mut impl UiRenderer, rect: Rect) -> bool {
-        // 1. 交互检测
+        // 1. 获取交互状态
         let interaction = ui.interact(rect);
 
-        // 2. 计算当前状态的颜色
-        let current_bg = match interaction {
-            Interaction::Held | Interaction::Clicked => self.bg_active,
-            Interaction::Hovered => self.bg_hover,
-            Interaction::None => self.bg_color,
+        // 2. 根据状态选择样式
+        let current_style = match interaction {
+            Interaction::Held | Interaction::Clicked => &self.active_style,
+            Interaction::Hovered => &self.hover_style,
+            Interaction::None => &self.normal_style,
         };
 
-        // 3. 绘制背景
-        if let Some(color) = current_bg {
-            ui.draw_rect(rect, color);
-        }
+        // 3. 绘制样式盒子 (背景 + 边框)
+        ui.draw_style(rect, current_style);
 
-        // 4. 绘制边框
-        if let Some((color, width)) = self.border {
-            ui.draw_border(rect, color, width);
-        }
+        // 4. 绘制文字 (支持自定义字体)
+        ui.draw_text(
+            self.text,
+            rect,
+            self.text_color,
+            self.font_size,
+            Alignment::Center,
+            self.font // 传入字体
+        );
 
-        // 5. 绘制文字 (简单居中)
-        ui.draw_text(self.text, rect, self.text_color, self.font_size, Alignment::Center);
-
-        // 6. 返回点击状态
+        // 5. 返回点击结果
         interaction.is_clicked()
     }
 }

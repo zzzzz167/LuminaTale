@@ -4,11 +4,14 @@ use std::fs;
 use std::time::{Duration, Instant};
 use walkdir::WalkDir;
 use skia_safe::{Image, Data};
+use skia_safe::textlayout::TypefaceFontProvider;
+use skia_safe::{Typeface, FontMgr};
 
 pub struct AssetManager {
     image_cache: HashMap<String, (Image, Instant)>,
     image_paths: HashMap<String, PathBuf>,
     audio_paths: HashMap<String, PathBuf>,
+    font_paths: HashMap<String, PathBuf>,
     root_path: PathBuf,
 }
 
@@ -18,6 +21,7 @@ impl AssetManager {
             image_cache: HashMap::new(),
             image_paths: HashMap::new(),
             audio_paths: HashMap::new(),
+            font_paths: HashMap::new(),
             root_path: PathBuf::from(root_path),
         };
 
@@ -43,6 +47,9 @@ impl AssetManager {
                             "mp3" | "wav" | "ogg" | "flac" => {
                                 self.audio_paths.insert(key, path.to_path_buf());
                             },
+                            "ttf" | "otf" => {
+                                self.font_paths.insert(key, path.to_path_buf());
+                            }
                             _ => {}
                         }
                     }
@@ -100,6 +107,28 @@ impl AssetManager {
         let freed_count = before_len - self.image_cache.len();
         if freed_count > 0 {
             log::debug!("GC Triggered: Freed {} assets. Current cache size: {}", freed_count, self.image_cache.len());
+        }
+    }
+
+    pub fn register_fonts_to(&self, provider: &mut TypefaceFontProvider) {
+        for (name, path) in &self.font_paths {
+            // 读取文件字节
+            match fs::read(path) {
+                Ok(bytes) => {
+                    let data = Data::new_copy(&bytes);
+                    // 创建 Typeface
+                    if let Some(typeface) = FontMgr::default().new_from_data(&data, None) {
+                        // 注册！使用文件名作为 alias (别名)
+                        provider.register_typeface(typeface, Some(name.as_str()));
+                        log::info!("Registered font: '{}'", name);
+                    } else {
+                        log::error!("Failed to parse font: {:?}", path);
+                    }
+                },
+                Err(e) => {
+                    log::error!("Failed to read font file {:?}: {}", path, e);
+                }
+            }
         }
     }
 }

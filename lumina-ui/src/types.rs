@@ -102,3 +102,60 @@ impl Rect {
         Rect::new(new_x, new_y, target_w, target_h)
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum GradientDirection {
+    Vertical,           // Top -> Bottom
+    Horizontal,         // Left -> Right
+    Diagonal,           // TopLeft -> BottomRight
+    InverseDiagonal,    // TopRight -> BottomLeft
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Background {
+    None,
+    Solid(Color),
+
+    /// 通用线性渐变
+    /// dir: 渐变方向
+    /// colors: (开始颜色, 结束颜色)
+    LinearGradient {
+        dir: GradientDirection,
+        colors: (Color, Color),
+    },
+
+    /// 图片背景 (存资源ID)
+    Image(String),
+}
+
+impl Default for Background {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Border {
+    pub color: Color,
+    pub width: f32,
+    pub radius: f32, // 圆角
+}
+
+impl Default for Border {
+    fn default() -> Self {
+        Self { color: Color::TRANSPARENT, width: 0.0, radius: 0.0 }
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Style {
+    pub background: Background,
+    pub border: Border,
+}
+
+// 方便的转换
+impl From<Color> for Background {
+    fn from(c: Color) -> Self {
+        Background::Solid(c)
+    }
+}

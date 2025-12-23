@@ -12,9 +12,10 @@ use lumina_ui::{
     input::UiContext,
     Rect
 };
-use skia_safe::textlayout::FontCollection;
+use skia_safe::textlayout::{FontCollection, TypefaceFontProvider};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use skia_safe::FontMgr;
 use viviscript_core::ast::Script;
 use winit::{
     application::ApplicationHandler,
@@ -52,6 +53,13 @@ impl SkiaRenderer {
     pub fn new(script: Arc<Script>) -> Self {
         let cfg: WindowConfig = lumina_shared::config::get("window");
         let asset_path = &cfg.assets.assets_path;
+        let assets = AssetManager::new(asset_path);
+
+        let mut font_collection = FontCollection::new();
+        let mut font_provider = TypefaceFontProvider::new();
+        assets.register_fonts_to(&mut font_provider);
+        font_collection.set_asset_font_manager(Some(font_provider.into()));
+        font_collection.set_dynamic_font_manager(FontMgr::default());
 
         let mut ctx = Ctx::default();
 
@@ -62,13 +70,10 @@ impl SkiaRenderer {
             Box::new(MainMenuScreen::new(script.clone()))
         };
 
-        let mut font_collection = FontCollection::new();
-        font_collection.set_default_font_manager(skia_safe::FontMgr::default(), None);
-
         Self {
             render_ctx: VulkanRenderContext::default(),
             renderer: None,
-            assets: AssetManager::new(asset_path),
+            assets,
             audio_player: AudioPlayer::new(),
             painter: Painter::new(),
             font_collection,
@@ -194,8 +199,8 @@ impl ApplicationHandler for SkiaRenderer {
 
                     renderer.draw_and_present(|canvas, size| {
                         // A. 布局计算 (含 DPI 修正)
-                        let win_w = size.width as f32;
-                        let win_h = size.height as f32;
+                        let win_w = size.width;
+                        let win_h = size.height;
 
                         let phy_w = phy_win_size.width as f32;
                         let content_scale = if phy_w > 0.0 { win_w / phy_w } else { 1.0 };
@@ -221,13 +226,12 @@ impl ApplicationHandler for SkiaRenderer {
 
                         // D. 委托给栈顶 Screen 绘制
                         if let Some(screen) = screens_ref.last_mut() {
-                            let mut ui = UiDrawer::new(canvas, ui_ctx_ref, fonts_ref);
+                            let mut ui = UiDrawer::new(canvas, ui_ctx_ref, fonts_ref, assets_ref);
                             let design_rect = Rect::new(0.0, 0.0, DESIGN_WIDTH, DESIGN_HEIGHT);
 
                             screen.draw(
                                 &mut ui,
                                 painter_ref,
-                                assets_ref,
                                 design_rect,
                                 ctx_ref
                             );

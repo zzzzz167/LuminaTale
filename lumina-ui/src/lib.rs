@@ -2,28 +2,27 @@ pub mod input;
 pub mod types;
 pub mod widgets;
 
-pub use types::{Rect, Color, Alignment};
+pub use types::{Rect, Color, Alignment, Style, Background, Border, GradientDirection};
 use input::Interaction;
 
 pub trait UiRenderer {
-    /// 绘制实心矩形
-    fn draw_rect(&mut self, rect: Rect, color: Color);
+    /// 万能绘制接口：渲染一个带有背景（纯色/渐变/图片）和边框的矩形
+    fn draw_style(&mut self, rect: Rect, style: &Style);
 
-    /// 绘制空心矩形（描边）
-    fn draw_border(&mut self, rect: Rect, color: Color, width: f32);
+    /// 图片绘制接口:
+    /// image_id: 资源 ID (例如 "btn_bg", "character_face")
+    /// tint: 染色颜色 (Color::WHITE 为原色)
+    fn draw_image(&mut self, image_id: &str, rect: Rect, tint: Color);
 
-    /// 绘制垂直渐变矩形 (从上到下)
-    fn draw_vertical_gradient(&mut self, rect: Rect, top_color: Color, bottom_color: Color);
-    
-    /// 绘制文字
-    fn draw_text(&mut self, text: &str, rect: Rect, color: Color, size: f32, align: Alignment);
+    /// 文本绘制
+    fn draw_text(&mut self, text: &str, rect: Rect, color: Color, size: f32, align: Alignment, font: Option<&str>);
 
     /// 绘制圆形
     fn draw_circle(&mut self, center: (f32, f32), radius: f32, color: Color);
 
-    /// 核心交互：查询某个区域的状态
+    /// 核心交互：查询某个区域的状态 (Hover / Click / Held)
     fn interact(&self, rect: Rect) -> Interaction;
 
-    /// 获取当前鼠标位置 (用于滑块计算数值)
+    /// 获取当前鼠标位置 (用于滑块计算数值等)
     fn cursor_pos(&self) -> (f32, f32);
 }

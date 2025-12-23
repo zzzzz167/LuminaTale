@@ -4,6 +4,7 @@ pub struct Label<'a> {
     color: Color,
     size: f32,
     align: Alignment,
+    font: Option<&'a str>,
 }
 
 impl<'a> Label<'a> {
@@ -12,7 +13,8 @@ impl<'a> Label<'a> {
             text,
             color: Color::WHITE,
             size: 24.0,
-            align: Alignment::Start
+            align: Alignment::Start,
+            font: None,
         }
     }
 
@@ -31,7 +33,12 @@ impl<'a> Label<'a> {
         self
     }
 
+    pub fn font(mut self, font_name: &'a str) -> Self {
+        self.font = Some(font_name);
+        self
+    }
+
     pub fn show(self, ui: &mut impl UiRenderer, rect: Rect) {
-        ui.draw_text(self.text, rect, self.color, self.size, self.align);
+        ui.draw_text(self.text, rect, self.color, self.size, self.align, self.font);
     }
 }

@@ -29,5 +29,5 @@ pub trait Screen {
     ) -> ScreenTransition;
 
     /// 画面绘制
-    fn draw(&mut self, ui: &mut UiDrawer, painter: &mut Painter, assets: &mut AssetManager, rect: Rect, ctx: &mut Ctx);
+    fn draw(&mut self, ui: &mut UiDrawer, painter: &mut Painter, rect: Rect, ctx: &mut Ctx);
 }
