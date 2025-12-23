@@ -12,8 +12,11 @@ pub trait UiRenderer {
     /// 绘制空心矩形（描边）
     fn draw_border(&mut self, rect: Rect, color: Color, width: f32);
 
+    /// 绘制垂直渐变矩形 (从上到下)
+    fn draw_vertical_gradient(&mut self, rect: Rect, top_color: Color, bottom_color: Color);
+    
     /// 绘制文字
-    fn draw_text(&mut self, text: &str, rect: Rect, color: Color, size: f32);
+    fn draw_text(&mut self, text: &str, rect: Rect, color: Color, size: f32, align: Alignment);
 
     /// 绘制圆形
     fn draw_circle(&mut self, center: (f32, f32), radius: f32, color: Color);

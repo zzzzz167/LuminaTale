@@ -1,8 +1,9 @@
-use crate::{Rect, Color, UiRenderer};
+use crate::{Rect, Color, UiRenderer, Alignment};
 pub struct Label<'a> {
     text: &'a str,
     color: Color,
     size: f32,
+    align: Alignment,
 }
 
 impl<'a> Label<'a> {
@@ -11,6 +12,7 @@ impl<'a> Label<'a> {
             text,
             color: Color::WHITE,
             size: 24.0,
+            align: Alignment::Start
         }
     }
 
@@ -24,7 +26,12 @@ impl<'a> Label<'a> {
         self
     }
 
+    pub fn align(mut self, align: Alignment) -> Self {
+        self.align = align;
+        self
+    }
+
     pub fn show(self, ui: &mut impl UiRenderer, rect: Rect) {
-        ui.draw_text(self.text, rect, self.color, self.size);
+        ui.draw_text(self.text, rect, self.color, self.size, self.align);
     }
 }

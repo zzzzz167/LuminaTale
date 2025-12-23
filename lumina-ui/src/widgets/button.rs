@@ -1,4 +1,4 @@
-use crate::{Rect, Color, UiRenderer};
+use crate::{Rect, Color, UiRenderer, Alignment};
 use crate::input::Interaction;
 
 pub struct Button<'a> {
@@ -80,7 +80,7 @@ impl<'a> Button<'a> {
         }
 
         // 5. 绘制文字 (简单居中)
-        ui.draw_text(self.text, rect, self.text_color, self.font_size);
+        ui.draw_text(self.text, rect, self.text_color, self.font_size, Alignment::Center);
 
         // 6. 返回点击状态
         interaction.is_clicked()

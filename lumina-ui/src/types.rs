@@ -28,8 +28,7 @@ impl Color {
     }
 }
 
-// 对齐方式 (为以后的 DSL 做准备)
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Alignment {
     Start,
     Center,

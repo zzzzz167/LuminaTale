@@ -1,4 +1,4 @@
-use crate::{Rect, Color, UiRenderer};
+use crate::{Rect, Color, UiRenderer, Alignment};
 use crate::input::Interaction;
 
 pub struct Checkbox<'a> {
@@ -54,8 +54,8 @@ impl<'a> Checkbox<'a> {
         let text_x = rect.x + box_size + 10.0;
         let text_w = rect.w - (box_size + 10.0);
         let text_rect = Rect::new(text_x, rect.y, text_w, rect.h);
-        
-        ui.draw_text(self.label, text_rect, self.color, self.size);
+
+        ui.draw_text(self.label, text_rect, self.color, self.size, Alignment::Center);
 
         changed
     }

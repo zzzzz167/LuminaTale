@@ -5,7 +5,7 @@ use crate::core::SceneAnimator;
 use lumina_core::{Ctx, OutputEvent};
 use lumina_core::event::InputEvent;
 use lumina_core::renderer::driver::ExecutorHandle;
-use lumina_ui::{Rect, Color, UiRenderer};
+use lumina_ui::{Rect, Color, UiRenderer, Alignment};
 use lumina_ui::widgets::{Button, Label, Panel};
 use winit::event_loop::ActiveEventLoop;
 
@@ -157,37 +157,45 @@ impl Screen for InGameScreen {
         // ============================
         // 2. 布局 UI (Rect Cut)
         // ============================
-        let (bottom_area, _game_area) = rect.split_bottom(300.0); // 底部 300px 给对话框
+        let (bottom_area, _game_area) = rect.split_bottom(280.0); // 底部 300px 给对话框
 
         // ============================
         // 3. 绘制对话框 (Layer 1)
         // ============================
         if let Some(last_dialogue) = ctx.dialogue_history.last() {
             // 背景板
-            Panel::new()
-                .color(Color::rgba(0, 0, 0, 200)) // 半透明黑
-                .show(ui, bottom_area);
+            let top_color = Color::rgba(20, 60, 70, 220);    // 深青色
+            let bottom_color = Color::rgba(40, 180, 200, 180); // 亮青色
 
-            let content_area = bottom_area.shrink(20.0);
+            ui.draw_vertical_gradient(bottom_area, top_color, bottom_color);
 
+            let dialogue_area = bottom_area.shrink(30.0);
+
+            let (_, left) = dialogue_area.split_left(300.0);
+            let (_, content_area) = left.split_right(300.0);
+
+            let (name_rect, text_rect) = content_area.split_top(50.0);
             // 名字 (如果有)
             if let Some(name) = &last_dialogue.speaker {
-                let (name_rect, text_rect) = content_area.split_top(40.0);
-                Label::new(name)
-                    .size(30.0)
-                    .color(Color::rgb(255, 200, 100)) // 金色名字
+                // 有名字：在头部区域画名字
+                let name_text = format!("【{}】", name);
+                Label::new(&name_text)
+                    .size(32.0)
+                    .color(Color::rgb(255, 230, 200)) // 米黄色
+                    .align(Alignment::Start)
                     .show(ui, name_rect);
-
-                // 对话内容
-                Label::new(&last_dialogue.text)
-                    .size(24.0)
-                    .show(ui, text_rect);
-            } else {
-                // 旁白
-                Label::new(&last_dialogue.text)
-                    .size(24.0)
-                    .show(ui, content_area);
             }
+
+            Label::new(&last_dialogue.text)
+                .size(26.0)
+                .color(Color::WHITE)
+                .align(Alignment::Start)
+                .show(ui, text_rect.shrink(10.0));
+
+            let icon_x = bottom_area.x + bottom_area.w - 200.0;
+            let icon_y = bottom_area.y + bottom_area.h - 60.0;
+
+            ui.draw_circle((icon_x, icon_y), 10.0, Color::rgba(255, 255, 255, 150));
         }
 
         // ============================

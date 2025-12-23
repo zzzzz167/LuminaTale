@@ -1,7 +1,7 @@
 use lumina_ui::input::{Interaction, UiContext};
-use lumina_ui::{Color, Rect, UiRenderer};
+use lumina_ui::{Alignment, Color, Rect, UiRenderer};
 use skia_safe::textlayout::{FontCollection, ParagraphBuilder, ParagraphStyle, TextAlign, TextStyle};
-use skia_safe::{Canvas, Paint, Point, Rect as SkRect};
+use skia_safe::{Canvas, Paint, Point, Rect as SkRect, gradient_shader::linear, TileMode};
 
 pub struct UiDrawer<'a> {
     pub(crate) canvas: &'a Canvas,
@@ -42,14 +42,43 @@ impl <'a> UiRenderer for UiDrawer<'a> {
         self.canvas.draw_round_rect(sk_rect, 4.0, 4.0, &paint);
     }
 
-    fn draw_text(&mut self, text: &str, rect: Rect, color: Color, size: f32) {
+    fn draw_vertical_gradient(&mut self, rect: Rect, top_color: Color, bottom_color: Color) {
+        let sk_rect = self.to_skia_rect(rect);
+        let colors = [self.to_skia_color(top_color), self.to_skia_color(bottom_color)];
+        let points = (
+            Point::new(sk_rect.center_x(), sk_rect.top()),
+            Point::new(sk_rect.center_x(), sk_rect.bottom())
+        );
+
+        let shader = linear(
+            points,
+            colors.as_slice(),
+            None,
+            TileMode::Clamp,
+            None,
+            None
+        );
+
+        let mut paint = Paint::default();
+        paint.set_shader(shader);
+        paint.set_anti_alias(true);
+
+        self.canvas.draw_round_rect(sk_rect, 8.0, 8.0, &paint);
+    }
+
+    fn draw_text(&mut self, text: &str, rect: Rect, color: Color, size: f32, align: Alignment) {
         let mut ts = TextStyle::new();
         ts.set_color(self.to_skia_color(color));
         ts.set_font_size(size);
 
         let mut ps = ParagraphStyle::new();
         ps.set_text_style(&ts);
-        ps.set_text_align(TextAlign::Center); // 默认居中，也可以传参控制
+        let skia_align = match align {
+            Alignment::Start => TextAlign::Left,
+            Alignment::Center => TextAlign::Center,
+            Alignment::End => TextAlign::Right,
+        };
+        ps.set_text_align(skia_align);
 
         let mut builder = ParagraphBuilder::new(&ps, self.fonts);
         builder.push_style(&ts);
