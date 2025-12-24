@@ -1,67 +1,60 @@
 use lumina_core::Ctx;
-use skia_safe::{Canvas, Paint, Rect};
-use crate::core::{animator::{RenderSprite, SceneAnimator}, AssetManager};
+use lumina_ui::{Rect, Color, UiRenderer, Transform};
+use crate::core::animator::{RenderSprite, SceneAnimator};
 
-pub struct Painter {}
+pub struct Painter {
+    // Painter 现在不需要持有任何东西
+}
 
 impl Painter {
-    pub fn new() -> Self{
+    pub fn new() -> Self {
         Self {}
     }
 
     pub fn paint(
         &mut self,
-        canvas: &Canvas,
+        ui: &mut impl UiRenderer,
         _ctx: &Ctx,
         animator: &SceneAnimator,
-        _window_size: (f32, f32),
-        assets: &mut AssetManager,
+        window_size: (f32, f32),
     ) {
-        //canvas.clear(Color::BLACK);
+        let (win_w, win_h) = window_size;
 
-        self.draw_sprites(canvas, animator, assets);
-    }
-
-    fn draw_sprites(&mut self, canvas: &Canvas, animator: &SceneAnimator, assets: &mut AssetManager) {
-        let logical_size = animator.window_logical_size;
         let mut render_list: Vec<&RenderSprite> = animator.sprites.values().collect();
         render_list.sort_by(|a, b| a.z_index.cmp(&b.z_index));
+
         for sprite in render_list {
-            let is_bg = sprite.z_index == 0;
-            self.draw_single_sprite(canvas, sprite, is_bg, logical_size, assets);
-        }
-    }
+            let filename = sprite.full_asset_name();
+            let is_bg = sprite.z_index < 0;
 
-    fn draw_single_sprite(
-        &mut self,
-        canvas: &Canvas,
-        sprite: &RenderSprite,
-        is_bg: bool,
-        logical_size: (f32, f32),
-        assets: &mut AssetManager
-    ) {
-        let filename = sprite.full_asset_name();
+            if is_bg {
+                let rect = Rect::new(0.0, 0.0, win_w, win_h);
+                let alpha = (sprite.alpha * 255.0) as u8;
+                ui.draw_image(&filename, rect, Color::rgba(255, 255, 255, alpha));
+                continue;
+            }
 
-        if let Some(image) = assets.get_image(&filename) {
-            let mut paint = Paint::default();
-            paint.set_alpha_f(sprite.alpha);
+            let (raw_w, raw_h) = ui.measure_image(&filename).unwrap_or((100.0, 100.0));
 
-            let dest_rect = if is_bg {
-                Rect::from_wh(logical_size.0, logical_size.1)
-            } else {
-                let img_w = image.width() as f32;
-                let img_h = image.height() as f32;
+            let mut t = Transform::default();
+            t.x = sprite.pos.x;
+            t.y = sprite.pos.y;
+            t.rotation = sprite.rotation;
+            t.scale_x = sprite.scale;
+            t.scale_y = sprite.scale;
 
-                let draw_w = img_w * sprite.scale;
-                let draw_h = img_h * sprite.scale;
+            ui.with_transform(t, &mut |ui| {
+                let offset_x = -raw_w * sprite.anchor.x;
+                let offset_y = -raw_h * sprite.anchor.y;
 
-                let x = sprite.pos.x - (draw_w * sprite.anchor.x);
-                let y = sprite.pos.y - (draw_h * sprite.anchor.y);
+                let draw_rect = Rect::new(offset_x, offset_y, raw_w, raw_h);
 
-                Rect::new(x, y, x + draw_w, y + draw_h)
-            };
+                let alpha = (sprite.alpha * 255.0) as u8;
+                ui.draw_image(&filename, draw_rect, Color::rgba(255, 255, 255, alpha));
 
-            canvas.draw_image_rect(&image, None, dest_rect, &paint);
+                //TODO: 这里也许可以实现“点击人物”?
+                // if ui.interact(draw_rect).is_clicked() { ... }
+            });
         }
     }
 }

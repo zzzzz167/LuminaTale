@@ -38,6 +38,7 @@ pub struct SkiaRenderer {
     pub font_collection: FontCollection,
 
     screens: Vec<Box<dyn Screen>>,
+    start_time: Instant,
     ctx: Ctx,
 
     ui_ctx: UiContext,
@@ -79,6 +80,7 @@ impl SkiaRenderer {
             font_collection,
 
             screens: vec![initial_screen],
+            start_time: Instant::now(),
             ctx,
 
             ui_ctx: UiContext::new(),
@@ -194,6 +196,8 @@ impl ApplicationHandler for SkiaRenderer {
                     let assets_ref = &mut self.assets;
                     let fonts_ref = &self.font_collection;
 
+                    let time = self.start_time.elapsed().as_secs_f32();
+
                     let (mx, my) = self.physical_cursor_pos;
                     let phy_win_size = renderer.window.inner_size();
 
@@ -226,7 +230,7 @@ impl ApplicationHandler for SkiaRenderer {
 
                         // D. 委托给栈顶 Screen 绘制
                         if let Some(screen) = screens_ref.last_mut() {
-                            let mut ui = UiDrawer::new(canvas, ui_ctx_ref, fonts_ref, assets_ref);
+                            let mut ui = UiDrawer::new(canvas, ui_ctx_ref, fonts_ref, assets_ref, time);
                             let design_rect = Rect::new(0.0, 0.0, DESIGN_WIDTH, DESIGN_HEIGHT);
 
                             screen.draw(

@@ -3,9 +3,8 @@ use std::path::PathBuf;
 use std::fs;
 use std::time::{Duration, Instant};
 use walkdir::WalkDir;
-use skia_safe::{Image, Data};
+use skia_safe::{Image, Data, FontMgr};
 use skia_safe::textlayout::TypefaceFontProvider;
-use skia_safe::{Typeface, FontMgr};
 
 pub struct AssetManager {
     image_cache: HashMap<String, (Image, Instant)>,
@@ -57,8 +56,8 @@ impl AssetManager {
             }
         }
 
-        log::info!("Asset scan complete. Images: {}, Audio: {}",
-            self.image_paths.len(), self.audio_paths.len());
+        log::info!("Asset scan complete. Images: {}, Audio: {}, Font: {}",
+            self.image_paths.len(), self.audio_paths.len(), self.font_paths.len());
     }
 
     pub fn get_image(&mut self, name: &str) -> Option<Image> {

@@ -13,6 +13,8 @@ impl Color {
     pub const RED: Self = Self { r: 255, g: 0, b: 0, a: 255 };
     pub const GRAY: Self = Self { r: 128, g: 128, b: 128, a: 255 };
     pub const DARK_GRAY: Self = Self { r: 40, g: 40, b: 40, a: 255 };
+    
+    pub const GREEN: Self = Self { r: 0, g: 255, b: 0, a: 255 };
 
     pub fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
@@ -157,5 +159,24 @@ pub struct Style {
 impl From<Color> for Background {
     fn from(c: Color) -> Self {
         Background::Solid(c)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Transform {
+    pub x: f32,
+    pub y: f32,
+    pub rotation: f32, // 角度 (Degrees)
+    pub scale_x: f32,
+    pub scale_y: f32,
+}
+
+impl Default for Transform {
+    fn default() -> Self {
+        Self {
+            x: 0.0, y: 0.0,
+            rotation: 0.0,
+            scale_x: 1.0, scale_y: 1.0
+        }
     }
 }

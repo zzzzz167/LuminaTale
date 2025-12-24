@@ -2,7 +2,7 @@ pub mod input;
 pub mod types;
 pub mod widgets;
 
-pub use types::{Rect, Color, Alignment, Style, Background, Border, GradientDirection};
+pub use types::{Rect, Color, Alignment, Style, Background, Border, GradientDirection, Transform};
 use input::Interaction;
 
 pub trait UiRenderer {
@@ -25,4 +25,10 @@ pub trait UiRenderer {
 
     /// 获取当前鼠标位置 (用于滑块计算数值等)
     fn cursor_pos(&self) -> (f32, f32);
+
+    fn with_transform(&mut self, transform: Transform, f: &mut dyn FnMut(&mut Self));
+
+    fn time(&self) -> f32;
+
+    fn measure_image(&mut self, image_id: &str) -> Option<(f32, f32)>;
 }

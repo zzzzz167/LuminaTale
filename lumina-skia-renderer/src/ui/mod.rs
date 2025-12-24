@@ -1,5 +1,5 @@
 use lumina_ui::input::{Interaction, UiContext};
-use lumina_ui::{Alignment, Color, Rect, Style, UiRenderer, Background};
+use lumina_ui::{Alignment, Color, Rect, Style, UiRenderer, Background, Transform};
 use lumina_ui::types::GradientDirection;
 use skia_safe::textlayout::{FontCollection, ParagraphBuilder, ParagraphStyle, TextAlign, TextStyle};
 use skia_safe::{
@@ -12,6 +12,8 @@ pub struct UiDrawer<'a> {
     input: &'a UiContext,
     fonts: &'a FontCollection,
     pub assets: &'a mut AssetManager,
+    pub time: f32,
+    transform_stack: Vec<Transform>,
 }
 
 impl<'a> UiDrawer<'a> {
@@ -20,8 +22,9 @@ impl<'a> UiDrawer<'a> {
         input: &'a UiContext,
         fonts: &'a FontCollection,
         assets: &'a mut AssetManager,
+        time: f32,
     ) -> Self {
-        Self { canvas, input, fonts, assets }
+        Self { canvas, input, fonts, assets, time , transform_stack: Vec::new(),}
     }
 
     fn to_skia_rect(&self, r: Rect) -> SkRect {
@@ -30,6 +33,33 @@ impl<'a> UiDrawer<'a> {
 
     fn to_skia_color(&self, c: Color) -> skia_safe::Color {
         skia_safe::Color::from_argb(c.a, c.r, c.g, c.b)
+    }
+
+    fn get_local_mouse_pos(&self) -> (f32, f32) {
+        let (mut mx, mut my) = self.input.mouse_pos;
+
+        for t in &self.transform_stack {
+            // 1. 逆平移
+            mx -= t.x;
+            my -= t.y;
+
+            // 2. 逆旋转
+            if t.rotation != 0.0 {
+                let rad = -t.rotation.to_radians(); // 反向旋转
+                let cos = rad.cos();
+                let sin = rad.sin();
+                let nx = mx * cos - my * sin;
+                let ny = mx * sin + my * cos;
+                mx = nx;
+                my = ny;
+            }
+
+            // 3. 逆缩放
+            if t.scale_x != 0.0 { mx /= t.scale_x; }
+            if t.scale_y != 0.0 { my /= t.scale_y; }
+        }
+
+        (mx, my)
     }
 }
 
@@ -170,10 +200,42 @@ impl <'a> UiRenderer for UiDrawer<'a> {
     }
 
     fn interact(&self, rect: Rect) -> Interaction {
-        self.input.interact(rect)
+        let (mx, my) = self.get_local_mouse_pos();
+        let hovered = rect.contains(mx, my);
+
+        if hovered {
+            if self.input.mouse_pressed {
+                return Interaction::Clicked;
+            }
+            if self.input.mouse_held {
+                return Interaction::Held;
+            }
+            return Interaction::Hovered;
+        }
+
+        Interaction::None
     }
 
     fn cursor_pos(&self) -> (f32, f32) {
         self.input.mouse_pos
+    }
+
+    fn with_transform(&mut self, t: Transform, f: &mut dyn FnMut(&mut Self)) {
+        self.canvas.save();
+        self.canvas.translate((t.x, t.y));
+        self.canvas.rotate(t.rotation, None);
+        self.canvas.scale((t.scale_x, t.scale_y));
+        self.transform_stack.push(t);
+        f(self);
+        self.transform_stack.pop();
+        self.canvas.restore();
+    }
+
+    fn time(&self) -> f32 {
+        self.time
+    }
+
+    fn measure_image(&mut self, image_id: &str) -> Option<(f32, f32)> {
+        self.assets.get_image(image_id).map(|img| (img.width() as f32, img.height() as f32))
     }
 }

@@ -3,16 +3,15 @@ use winit::event_loop::ActiveEventLoop;
 use viviscript_core::ast::Script;
 
 use super::{Screen, ScreenTransition};
-// 引入 InGameScreen，以便跳转
 use crate::screens::ingame::InGameScreen;
-// use crate::screens::settings::SettingsScreen;
+use crate::screens::settings::SettingsScreen;
 
 use crate::ui::UiDrawer;
 use crate::core::{AssetManager, Painter, AudioPlayer};
 use lumina_core::Ctx;
 use lumina_core::renderer::driver::ExecutorHandle;
 
-use lumina_ui::{Rect, Color, GradientDirection, Alignment};
+use lumina_ui::{Rect, Color, GradientDirection, Alignment, Transform, UiRenderer};
 use lumina_ui::widgets::{Button, Label, Panel};
 
 pub struct MainMenuScreen {
@@ -76,13 +75,45 @@ impl Screen for MainMenuScreen {
         let (btn_settings, rest) = rest.split_top(80.0);
         let (btn_quit, _) = rest.split_top(80.0);
 
+        let time = ui.time;
+
+        let scale = 1.0 + (time * 3.0).sin() * 0.05;
+        let rotation = (time * 2.0).sin() * 2.0;
+
+        let start_rect = btn_start.shrink(10.0);
+        let center_x = start_rect.x + start_rect.w / 2.0;
+        let center_y = start_rect.y + start_rect.h / 2.0;
+
+        let mut t = Transform::default();
+        t.x = center_x;
+        t.y = center_y;
+        t.scale_x = scale;
+        t.scale_y = scale;
+        t.rotation = rotation;
+
         // 3. 绘制按钮 & 处理点击
 
         // --- 开始游戏 ---
-        if Button::new("Start Game")
-            .rounded(8.0)
-            .show(ui, btn_start.shrink(10.0))
-        {
+        let mut start_clicked = false;
+
+        ui.with_transform(t, &mut |ui| {
+            let local_rect = Rect::new(
+                -start_rect.w / 2.0,
+                -start_rect.h / 2.0,
+                start_rect.w,
+                start_rect.h
+            );
+
+            if Button::new("Start Game")
+                .rounded(8.0)
+                .fill(Color::rgb(60, 100, 200))
+                .show(ui, local_rect)
+            {
+                start_clicked = true;
+            }
+        });
+
+        if start_clicked {
             *ctx = Ctx::default();
             let driver = ExecutorHandle::new(ctx, self.script.clone());
             self.pending_transition = ScreenTransition::Replace(
@@ -94,7 +125,7 @@ impl Screen for MainMenuScreen {
             .rounded(8.0)
             .show(ui, btn_settings.shrink(10.0))
         {
-            log::debug!("Settings clicked (TODO)");
+            self.pending_transition = ScreenTransition::Push(Box::new(SettingsScreen::new()));
         }
 
         if Button::new("Quit")

@@ -1,5 +1,6 @@
 pub mod main_menu;
 pub(crate) mod ingame;
+pub mod settings;
 
 use crate::ui::UiDrawer;
 use crate::core::{AssetManager, AudioPlayer, Painter};

@@ -79,6 +79,8 @@ impl InGameScreen {
                 },
                 OutputEvent::UpdateSprite { target, transition } => {
                     let (pos_str, attrs) = get_sprite_info(&target);
+                    let attrs = attrs.unwrap_or_default();
+
                     self.animator.handle_update_sprite(
                         target,
                         transition,
@@ -152,7 +154,7 @@ impl Screen for InGameScreen {
         // ============================
         // 调用 Painter 画背景和立绘。
         // Painter 应该只需要知道在这个 rect 范围内画画
-        painter.paint(ui.canvas, ctx, &self.animator, (rect.w, rect.h), ui.assets);
+        painter.paint(ui, ctx, &self.animator, (rect.w, rect.h));
 
         // ============================
         // 2. 布局 UI (Rect Cut)
