@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use winit::event_loop::ActiveEventLoop;
-use viviscript_core::ast::Script;
+use lumina_core::manager::ScriptManager;
 
 use super::{Screen, ScreenTransition};
 use crate::screens::ingame::InGameScreen;
@@ -15,16 +15,15 @@ use lumina_ui::{Rect, Color, GradientDirection, Alignment, Transform, UiRenderer
 use lumina_ui::widgets::{Button, Label, Panel};
 
 pub struct MainMenuScreen {
-    // 需要脚本引用来启动新游戏
-    script: Arc<Script>,
+    manager: Arc<ScriptManager>,
     // 暂存这一帧 UI 点击产生的跳转指令
     pending_transition: ScreenTransition,
 }
 
 impl MainMenuScreen {
-    pub fn new(script: Arc<Script>) -> Self {
+    pub fn new(manager: Arc<ScriptManager>) -> Self {
         Self {
-            script,
+            manager,
             pending_transition: ScreenTransition::None,
         }
     }
@@ -115,7 +114,7 @@ impl Screen for MainMenuScreen {
 
         if start_clicked {
             *ctx = Ctx::default();
-            let driver = ExecutorHandle::new(ctx, self.script.clone());
+            let driver = ExecutorHandle::new(ctx, self.manager.clone());
             self.pending_transition = ScreenTransition::Replace(
                 Box::new(InGameScreen::new(driver))
             );

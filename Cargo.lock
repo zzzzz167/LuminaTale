@@ -1221,6 +1221,7 @@ dependencies = [
  "rustc-hash",
  "serde",
  "viviscript-core",
+ "walkdir",
 ]
 
 [[package]]

@@ -36,7 +36,7 @@ pub struct CoreConfig {
 }
 
 fn default_script_path() -> String {
-    "game/00_init.vivi".to_string()
+    "game/".to_string()
 }
 
 impl Default for CoreConfig {

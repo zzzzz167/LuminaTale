@@ -3,10 +3,8 @@ mod call_stack;
 mod walk;
 
 use std::sync::Arc;
-use rustc_hash::FxHashMap;
 use mlua::Lua;
-use viviscript_core::ast::{Stmt, Script};
-use std::collections::HashMap;
+use viviscript_core::ast::Stmt;
 use frame::Frame;
 use call_stack::CallStack;
 
@@ -15,19 +13,30 @@ use crate::event::{OutputEvent, InputEvent};
 use crate::executor::walk::{walk_stmt, NextAction, StmtEffect};
 use crate::lua_glue::{self, CommandBuffer, LuaCommand};
 use crate::storager::types::FrameSnapshot;
+use crate::manager::ScriptManager;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Executor {
     call_stack: CallStack,
     lua: Lua,
     cmd_buffer: CommandBuffer,
     pending_choice: Option<Vec<(String, Vec<Stmt>)>>,
     pause: bool,
-    label_map: FxHashMap<String, Arc<[Stmt]>>,
+
+    manager: Arc<ScriptManager>
+}
+
+impl std::fmt::Debug for Executor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Executor")
+            .field("call_stack", &self.call_stack)
+            .field("pause", &self.pause)
+            .finish()
+    }
 }
 
 impl Executor {
-    pub fn new() -> Self{
+    pub fn new(manager: Arc<ScriptManager>) -> Self{
         let lua = Lua::new();
         let cmd_buffer = lua_glue::init_lua(&lua);
 
@@ -37,67 +46,17 @@ impl Executor {
             cmd_buffer,
             pending_choice: None,
             pause: false,
-            label_map: FxHashMap::default(),
-        }
-    }
-
-    pub fn prepare_script(script: &mut Script) {
-        log::info!("Preparing script (mutating AST)...");
-        pre_narration_lines(&mut script.body);
-
-        let mut dummy_map = FxHashMap::default();
-        preprocess_block(&mut script.body, "root", &mut dummy_map);
-    }
-
-    pub fn load_script(&mut self, ctx: &mut Ctx, script: Arc<Script>) {
-        log::info!("Loading script (indexing)...");
-
-        pre_collect_characters(ctx, &script.body);
-
-        self.label_map.clear();
-        self.build_label_map_from_stmts(&script.body);
-    }
-
-    fn build_label_map_from_stmts(&mut self, stmts: &[Stmt]) {
-        for stmt in stmts {
-            match stmt {
-                Stmt::Label { id, body, .. } => {
-                    self.label_map.insert(id.clone(), Arc::from(body.as_slice()));
-                    self.build_label_map_from_stmts(body);
-                },
-                Stmt::If { branches, else_branch, id, .. } => {
-                    if let Some(base_id) = id {
-                        for (idx, (_, body)) in branches.iter().enumerate() {
-                            let branch_id = format!("{}_b{}", base_id, idx);
-                            self.label_map.insert(branch_id, Arc::from(body.as_slice()));
-                            self.build_label_map_from_stmts(body);
-                        }
-                        if let Some(body) = else_branch {
-                            let branch_id = format!("{}_else", base_id);
-                            self.label_map.insert(branch_id, Arc::from(body.as_slice()));
-                            self.build_label_map_from_stmts(body);
-                        }
-                    }
-                },
-                Stmt::Choice { arms, id, .. } => {
-                    if let Some(base_id) = id {
-                        for (idx, arm) in arms.iter().enumerate() {
-                            let arm_id = format!("{}_opt{}", base_id, idx);
-                            self.label_map.insert(arm_id, Arc::from(arm.body.as_slice()));
-                            self.build_label_map_from_stmts(&arm.body);
-                        }
-                    }
-                },
-                _ => {}
-            }
+            manager,
         }
     }
     
     pub fn start(&mut self, ctx: &mut Ctx, label: &str) {
         init_ctx_runtime(ctx);
-        let body = self.get_block_arc(label).unwrap_or_else(|| panic!("label {} not found", label));
-        self.call_stack.push(Frame::new(label.to_string(),body, 0));
+        let global_chars = self.manager.collect_characters();
+        ctx.characters.extend(global_chars);
+        self.perform_jump(label);
     }
+
     pub fn feed(&mut self, ev: InputEvent) {
         match ev {
             InputEvent::ChoiceMade { index } => {
@@ -150,8 +109,8 @@ impl Executor {
                 let frame = Frame::new(fs.label, body, pc);
                 self.call_stack.push(frame);
             } else {
-                log::error!("Restore failed: Code block '{}' not found.", fs.label);
-                panic!("Save file mismatch");
+                log::error!("Restore failed: Code block '{}' not found in project.", fs.label);
+                panic!("Save file mismatch or Script changed");
             }
         }
     }
@@ -178,7 +137,7 @@ impl Executor {
     }
 
     fn get_block_arc(&self, name: &str) -> Option<Arc<[Stmt]>> {
-        self.label_map.get(name).cloned()
+        self.manager.get_label(name)
     }
 
     fn process_lua_commands(&mut self, _ctx: &mut Ctx) -> bool {
@@ -197,7 +156,8 @@ impl Executor {
 
     fn perform_jump(&mut self, label: &str) {
         let body = self.get_block_arc(label)
-            .unwrap_or_else(|| panic!("label {} not found", label));
+            .unwrap_or_else(|| panic!("Label '{}' not found in project!", label));
+
         self.call_stack.clear();
         self.call_stack.push(Frame::new(label.to_string(), body, 0));
     }
@@ -253,106 +213,4 @@ fn init_ctx_runtime(ctx: &mut Ctx) {
     ctx.audios.insert("voice".to_string(), None);
     ctx.layer_record.arrange.push("master".to_string());
     ctx.layer_record.layer.insert("master".to_string(), vec![]);
-}
-
-fn pre_collect_characters(ctx: &mut Ctx, list: &[Stmt]) {
-    for stmt in list {
-        match stmt {
-            Stmt::CharacterDef { id, name, image_tag, voice_tag, .. } => {
-                ctx.characters.insert(
-                    id.clone(),
-                    crate::runtime::assets::Character {
-                        id: id.clone(),
-                        name: name.clone(),
-                        image_tag: image_tag.clone(),
-                        voice_tag: voice_tag.clone(),
-                    },
-                );
-            }
-            _ => {}
-        }
-    }
-}
-
-
-fn pre_narration_lines(body: &mut Vec<Stmt>) {
-    let mut new_body = Vec::new();
-    for stmt in body.drain(..) {
-        match stmt { 
-            Stmt::Narration {span, lines} => {
-                for l in lines {
-                    new_body.push(Stmt::Narration {span, lines: vec![l]});
-                }
-            },
-            Stmt::Label { span, id, mut body } => {
-                pre_narration_lines(&mut body);
-                new_body.push(Stmt::Label { span, id, body });
-            },
-            Stmt::Choice { span, title, mut arms, id } => {
-                for arm in &mut arms {
-                    pre_narration_lines(&mut arm.body);
-                }
-                new_body.push(Stmt::Choice { span, title, arms, id });
-            }
-            Stmt::If { span, mut branches, mut else_branch, id } => {
-                for (_, body) in &mut branches {
-                    pre_narration_lines(body);
-                }
-                if let Some(body) = &mut else_branch {
-                    pre_narration_lines(body);
-                }
-                new_body.push(Stmt::If { span, branches, else_branch, id });
-            }
-            _ => new_body.push(stmt),
-        }
-    }
-    *body = new_body;
-}
-
-fn preprocess_block(
-    stmts: &mut [Stmt],
-    scope_name: &str,
-    map: &mut FxHashMap<String, Arc<[Stmt]>>
-) {
-    let mut counters: HashMap<&str, usize> = HashMap::new();
-
-    for stmt in stmts {
-        match stmt {
-            Stmt::Label {id, body, ..} => {
-                preprocess_block(body, id, map);
-                map.insert(id.clone(), Arc::from(body.as_slice()));
-            },
-            Stmt::If { branches, else_branch, id, .. } => {
-                let count = counters.entry("if").or_insert(0);
-                let base_id = format!("{}@if_{}", scope_name, count);
-                *count += 1;
-                *id = Some(base_id.clone());
-
-                for (idx, (_, body)) in branches.iter_mut().enumerate() {
-                    let branch_id = format!("{}_b{}", base_id, idx);
-                    preprocess_block(body, &branch_id, map);
-                    map.insert(branch_id.clone(), Arc::from(body.as_slice()));
-                }
-
-                if let Some(body) = else_branch {
-                    let branch_id = format!("{}_else", base_id);
-                    preprocess_block(body, &branch_id, map);
-                    map.insert(branch_id.clone(), Arc::from(body.as_slice()));
-                }
-            },
-            Stmt::Choice { arms, id, .. } => {
-                let count = counters.entry("choice").or_insert(0);
-                let base_id = format!("{}@choice_{}", scope_name, count);
-                *count += 1;
-                *id = Some(base_id.clone());
-
-                for (idx, arm) in arms.iter_mut().enumerate() {
-                    let arm_id = format!("{}_opt{}", base_id, idx);
-                    preprocess_block(&mut arm.body, &arm_id, map);
-                    map.insert(arm_id.clone(), Arc::from(arm.body.as_slice()));
-                }
-            },
-            _ => {}
-        }
-    }
 }

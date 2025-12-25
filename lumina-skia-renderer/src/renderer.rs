@@ -7,6 +7,7 @@ use crate::vk_utils::renderer::VulkanRenderer;
 
 use lumina_core::renderer::driver::ExecutorHandle;
 use lumina_core::Ctx;
+use lumina_core::manager::ScriptManager;
 use lumina_shared;
 use lumina_ui::{
     input::UiContext,
@@ -16,7 +17,6 @@ use skia_safe::textlayout::{FontCollection, TypefaceFontProvider};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use skia_safe::FontMgr;
-use viviscript_core::ast::Script;
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -45,13 +45,12 @@ pub struct SkiaRenderer {
     physical_cursor_pos: (f32, f32),
     scale_factor: f64,
 
-
     gc_timer: Instant,
     last_frame: Instant,
 }
 
 impl SkiaRenderer {
-    pub fn new(script: Arc<Script>) -> Self {
+    pub fn new(manager: Arc<ScriptManager>) -> Self {
         let cfg: WindowConfig = lumina_shared::config::get("window");
         let asset_path = &cfg.assets.assets_path;
         let assets = AssetManager::new(asset_path);
@@ -65,10 +64,10 @@ impl SkiaRenderer {
         let mut ctx = Ctx::default();
 
         let initial_screen: Box<dyn Screen> = if cfg.debug.skip_main_menu {
-            let driver = ExecutorHandle::new(&mut ctx, script.clone());
+            let driver = ExecutorHandle::new(&mut ctx, manager.clone());
             Box::new(InGameScreen::new(driver))
         } else {
-            Box::new(MainMenuScreen::new(script.clone()))
+            Box::new(MainMenuScreen::new(manager.clone()))
         };
 
         Self {

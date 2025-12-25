@@ -1,11 +1,10 @@
 pub mod types;
 
-use std::fs::File;
-use std::io::{BufWriter, BufReader};
-use std::sync::Arc;
-use viviscript_core::ast::Script;
-use crate::{Ctx, Executor};
 use crate::storager::types::SaveFile;
+use crate::{Ctx, Executor, ScriptManager};
+use std::fs::File;
+use std::io::{BufReader, BufWriter};
+use std::sync::Arc;
 
 pub fn save(path: &str, ctx: Ctx, exe: Executor) -> anyhow::Result<()> {
     let file = File::create(path)?;
@@ -19,16 +18,13 @@ pub fn save(path: &str, ctx: Ctx, exe: Executor) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn load(path: &str, script: Arc<Script>) -> anyhow::Result<(Ctx, Executor)> {
+pub fn load(path: &str, manager: Arc<ScriptManager>) -> anyhow::Result<(Ctx, Executor)> {
     let file = File::open(path)?;
     let mut reader = BufReader::new(file);
     let config = bincode::config::standard();
     let save: SaveFile = bincode::serde::decode_from_std_read(&mut reader, config)?;
-    let mut exe = Executor::new();
+    let mut exe = Executor::new(manager);
 
-    let mut dummy_ctx = Ctx::default();
-    
-    exe.load_script(&mut dummy_ctx, script);
     exe.restore(save.stack);
     Ok((save.ctx, exe))
 }

@@ -3,9 +3,9 @@ pub mod terminal;
 pub mod driver;
 
 use std::sync::Arc;
-use viviscript_core::ast::Script;
+use crate::manager::ScriptManager;
 use crate::Ctx;
 
 pub trait Renderer {
-    fn run_event_loop(&mut self, ctx: &mut Ctx, script: Arc<Script>);
+    fn run_event_loop(&mut self, ctx: &mut Ctx, manager: Arc<ScriptManager>);
 }

@@ -1,19 +1,18 @@
 use std::sync::Arc;
-use viviscript_core::ast::Script;
 use crate::{storager, Ctx, Executor};
 use crate::event::InputEvent;
+use crate::manager::ScriptManager;
 
 pub struct ExecutorHandle{
     exe: Executor,
-    script: Arc<Script>,
+    manager: Arc<ScriptManager>,
 }
 
 impl ExecutorHandle {
-    pub fn new(ctx: &mut Ctx, script: Arc<Script>) -> Self {
-        let mut exe = Executor::new();
-        exe.load_script(ctx, script.clone());
+    pub fn new(ctx: &mut Ctx, manager: Arc<ScriptManager>) -> Self {
+        let mut exe = Executor::new(manager.clone());
         exe.start(ctx, "init");
-        Self { exe, script }
+        Self { exe, manager }
     }
 
     #[inline]
@@ -33,7 +32,7 @@ impl ExecutorHandle {
             }
             InputEvent::LoadRequest { slot } => {
                 log::info!("Load request slot: {}", slot);
-                if let Ok((new_ctx, new_exe)) = storager::load(&format!("save{}.bin", slot), self.script.clone()) {
+                if let Ok((new_ctx, new_exe)) = storager::load(&format!("save{}.bin", slot), self.manager.clone()) {
                     *ctx = new_ctx;
                     ctx.dialogue_history.pop();
                     self.exe = new_exe;
