@@ -1,11 +1,14 @@
 use std::ops::Add;
+use std::sync::OnceLock;
+use viviscript_core::ast::{Stmt, AudioAction, ShowAttr, Transition};
+use regex::Regex;
+use mlua::Lua;
+
 use crate::runtime::Ctx;
 use crate::event::OutputEvent;
 use crate::runtime::assets::{Audio, DialogueRecord, Sprite};
 use crate::lua_glue;
 use crate::config;
-use viviscript_core::ast::{Stmt, AudioAction, ShowAttr, Transition};
-use mlua::Lua;
 
 #[derive(Debug, Clone)]
 pub struct StmtEffect {
@@ -22,6 +25,18 @@ pub enum NextAction {
     WaitInput,
     EnterBlock(String, Vec<Stmt>),
 }
+
+fn interpolate(lua: &Lua, text: &str) -> String {
+    // 缓存正则表达式，避免重复编译
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"\{([^}]+)\}").unwrap());
+
+    re.replace_all(text, |caps: &regex::Captures| {
+        let expr = &caps[1]; // 拿到花括号里面的内容，例如 "f.score"
+        lua_glue::eval_string(lua, expr)
+    }).to_string()
+}
+
 pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
     log::trace!("walk_stmt: {:?}", stmt);
     let mut events = Vec::new();
@@ -37,10 +52,14 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
             NextAction::Continue
         },
         Stmt::Narration { lines, .. } => {
-            events.push(OutputEvent::ShowNarration { lines: lines.clone() });
-            for i in lines{
+            let processed_lines: Vec<String> = lines.iter()
+                .map(|l| interpolate(lua, l))
+                .collect();
+
+            for i in &processed_lines{
                 ctx.dialogue_history.push(DialogueRecord {speaker: None, text: i.clone(), voice_path: None});
             }
+            events.push(OutputEvent::ShowNarration { lines: processed_lines });
             NextAction::WaitInput
         },
         Stmt::Dialogue {speaker, text, voice_index, ..} => {
@@ -70,8 +89,11 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
                     volume: config::get().audio.voice_volume, 
                     looping: false});
             }
-            ctx.dialogue_history.push(DialogueRecord {speaker: Some(name.clone()), text: text.clone(), voice_path: path.clone()});
-            events.push(OutputEvent::ShowDialogue {name, content: text.clone()});
+
+            let final_text = interpolate(lua, text);
+
+            ctx.dialogue_history.push(DialogueRecord {speaker: Some(name.clone()), text: final_text.clone(), voice_path: path.clone()});
+            events.push(OutputEvent::ShowDialogue {name, content: final_text.clone()});
             NextAction::WaitInput
         },
         Stmt::Audio {action, channel, resource, options, ..} => {
@@ -187,14 +209,18 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
         Stmt::Choice {title, arms,id ,..}=>{
             let base_id = id.as_ref().expect("AST not preprocessed! Call preload_script first.");
 
-            let options: Vec<String> = arms.iter().map(|a| a.text.clone()).collect();
+            let processed_title = title.as_ref().map(|t| interpolate(lua, t));
+
+            let options: Vec<String> = arms.iter()
+                .map(|a| interpolate(lua, &a.text))
+                .collect();
 
             let arms_data: Vec<(String, Vec<Stmt>)> = arms.iter().enumerate().map(|(idx, a)| {
                 let arm_id = format!("{}_opt{}", base_id, idx);
                 (arm_id, a.body.clone())
             }).collect();
 
-            ctx.push(OutputEvent::ShowChoice { title: title.clone(), options });
+            ctx.push(OutputEvent::ShowChoice { title: processed_title, options });
             NextAction::WaitChoice(arms_data)
         },
         Stmt::If {branches, else_branch, id, ..} => {

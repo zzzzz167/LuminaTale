@@ -94,6 +94,15 @@ impl Executor {
         }
     }
 
+    pub fn sync_vars_to_ctx(&self, ctx: &mut Ctx) {
+        let val = lua_glue::extract_vars(&self.lua);
+        ctx.var_f = val;
+    }
+
+    pub fn sync_vars_from_ctx(&self, ctx: &mut Ctx) {
+        lua_glue::inject_vars(&self.lua, &ctx.var_f);
+    }
+
     pub fn snapshot(&self) -> Vec<FrameSnapshot> {
         self.call_stack.stack
             .iter().map(|f| FrameSnapshot {
@@ -213,7 +222,7 @@ impl Executor {
 
     fn trigger_preload(&mut self, ctx: &mut Ctx) {
         let core_cfg: CoreConfig = lumina_shared::config::get("core");
-        
+
         if let Some(frame) = self.call_stack.top_mut() {
             let (images, audios) = scanner::Scanner::scan(
                 &frame.stmts,

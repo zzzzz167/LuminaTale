@@ -25,6 +25,9 @@ impl ExecutorHandle {
         match ev {
             InputEvent::SaveRequest {slot} => {
                 log::info!("Try to save request slot: {}", slot);
+
+                self.exe.sync_vars_to_ctx(ctx);
+
                 storager::save(&format!("save{}.bin", slot), ctx.clone(), self.exe.clone())
                     .unwrap_or_else(|e| log::error!("save failed: {}", e));
                 self.exe.feed(InputEvent::Continue);
@@ -32,13 +35,19 @@ impl ExecutorHandle {
             }
             InputEvent::LoadRequest { slot } => {
                 log::info!("Load request slot: {}", slot);
-                if let Ok((new_ctx, new_exe)) = storager::load(&format!("save{}.bin", slot), self.manager.clone()) {
-                    *ctx = new_ctx;
-                    ctx.dialogue_history.pop();
-                    self.exe = new_exe;
-                    log::info!("Load finished");
-                }else {
-                    log::warn!("load failed");
+                match storager::load(&format!("save{}.bin", slot), self.manager.clone()) {
+                    Ok((new_ctx, new_exe)) => {
+                        *ctx = new_ctx;
+                        ctx.dialogue_history.pop();
+
+                        new_exe.sync_vars_from_ctx(ctx);
+
+                        self.exe = new_exe;
+                        log::info!("Load finished");
+                    }
+                    Err(e) => {
+                        log::error!("Load failed: {:?}", e);
+                    }
                 }
             }
             _ => self.exe.feed(ev),

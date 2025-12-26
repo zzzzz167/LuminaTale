@@ -13,7 +13,7 @@ impl Scanner {
         let mut images = Vec::new();
         let mut audios = Vec::new();
 
-        let mut current_stmts = start_stmts;
+        let current_stmts = start_stmts;
         let mut pc = start_pc;
         let mut steps_taken = 0;
 

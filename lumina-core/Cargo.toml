@@ -11,13 +11,15 @@ tui = ["dep:ratatui"]
 viviscript-core = {path = "../viviscript-core"}
 lumina-shared = { path = "../lumina-shared" }
 serde = { version = "1.0.228", features = ["derive"] }
-mlua = {version = "0.11.5",  features = ["lua54", "vendored"]}
+serde_json = "1.0.147"
+mlua = {version = "0.11.5",  features = ["lua54", "vendored", "serialize"]}
 anyhow = "1.0.98"
 bincode = { version = "2.0.1", features = ["serde"] }
 ratatui = { version = "0.29.0", optional = true }
 log = "0.4.29"
 rustc-hash = "2.1.1"
 walkdir = "2.5.0"
+regex = "1.11.1"
 
 [dev-dependencies]
 criterion = {version = "0.7.0", features = ["html_reports"]}
