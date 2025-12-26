@@ -11,6 +11,7 @@ pub struct ExecutorHandle{
 impl ExecutorHandle {
     pub fn new(ctx: &mut Ctx, manager: Arc<ScriptManager>) -> Self {
         let mut exe = Executor::new(manager.clone());
+        exe.load_global_data();
         exe.start(ctx, "init");
         Self { exe, manager }
     }
@@ -42,6 +43,7 @@ impl ExecutorHandle {
 
                         new_exe.sync_vars_from_ctx(ctx);
 
+                        new_exe.load_global_data();
                         self.exe = new_exe;
                         log::info!("Load finished");
                     }

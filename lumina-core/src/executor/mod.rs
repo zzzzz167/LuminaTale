@@ -95,12 +95,36 @@ impl Executor {
     }
 
     pub fn sync_vars_to_ctx(&self, ctx: &mut Ctx) {
-        let val = lua_glue::extract_vars(&self.lua);
-        ctx.var_f = val;
+        ctx.var_f = lua_glue::extract_vars(&self.lua);
+
+        let sf_data = lua_glue::extract_sf(&self.lua);
+
+        if let Err(e) = crate::storager::save_global("global.json", &sf_data) {
+            log::error!("Failed to auto-save global.json: {}", e);
+        } else {
+            log::info!("Global data auto-saved.");
+        }
     }
 
     pub fn sync_vars_from_ctx(&self, ctx: &mut Ctx) {
         lua_glue::inject_vars(&self.lua, &ctx.var_f);
+    }
+
+    pub fn load_global_data(&self) {
+        match crate::storager::load_global("global.json") {
+            Ok(data) => {
+                if !data.is_null() {
+                    log::info!("Global data loaded.");
+                    lua_glue::inject_sf(&self.lua, &data);
+                } else {
+                    log::info!("No global data found (new game).");
+                }
+            }
+            Err(e) => {
+                // 只有真正的 IO 错误才报 Error，文件不存在是正常的
+                log::warn!("Check global data: {}", e);
+            }
+        }
     }
 
     pub fn snapshot(&self) -> Vec<FrameSnapshot> {
@@ -160,6 +184,16 @@ impl Executor {
                     log::info!("Lua Jump -> {}", target);
                     self.perform_jump(&target);
                 },
+                LuaCommand::SaveGlobal => {
+                    log::info!("Lua requested global save.");
+                    let sf_data = lua_glue::extract_sf(&self.lua);
+
+                    if let Err(e) = crate::storager::save_global("global.json", &sf_data) {
+                        log::error!("Failed to save global.json: {}", e);
+                    } else {
+                        log::info!("Global data saved successfully.");
+                    }
+                }
             }
         }
         true

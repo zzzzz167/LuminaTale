@@ -5,6 +5,7 @@ use log::{error, info};
 #[derive(Debug,Clone)]
 pub enum LuaCommand {
     Jump(String),
+    SaveGlobal
 }
 
 #[derive(Debug,Clone)]
@@ -54,6 +55,12 @@ pub fn init_lua(lua: &Lua) -> CommandBuffer {
     let cb = cb_clone.clone();
     lumina.set("jump", lua.create_function(move |_, target: String| {
         cb.push(LuaCommand::Jump(target));
+        Ok(())
+    }).unwrap()).unwrap();
+
+    let cb_save = cb_clone.clone();
+    lumina.set("save_global", lua.create_function(move |_, ()| {
+        cb_save.push(LuaCommand::SaveGlobal);
         Ok(())
     }).unwrap()).unwrap();
 
@@ -112,5 +119,29 @@ pub fn eval_string(lua: &Lua, expr: &str) -> String {
             log::error!("Interpolation error for '{}': {}", expr, e);
             format!("{{ERR:{}}}", expr)
         }
+    }
+}
+
+pub fn inject_sf(lua: &Lua, data: &serde_json::Value) {
+    let globals = lua.globals();
+    match lua.to_value(data) {
+        Ok(lua_val) => {
+            if !lua_val.is_nil() {
+                globals.set("sf", lua_val).unwrap();
+            }
+        }
+        Err(e) => error!("Failed to inject sf to Lua: {}", e),
+    }
+}
+
+pub fn extract_sf(lua: &Lua) -> serde_json::Value {
+    let globals = lua.globals();
+    if let Ok(val) = globals.get::<mlua::Value>("sf") {
+        serde_json::to_value(&val).unwrap_or_else(|e| {
+            error!("Failed to serialize Lua 'sf': {}", e);
+            serde_json::Value::Null
+        })
+    } else {
+        serde_json::Value::Null
     }
 }

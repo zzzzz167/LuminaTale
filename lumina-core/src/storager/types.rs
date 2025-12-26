@@ -13,3 +13,8 @@ pub struct SaveFile {
     pub ctx: Ctx,
     pub stack: Vec<FrameSnapshot>,
 }
+
+#[derive(Serialize, Deserialize, Default)]
+pub struct GlobalSave {
+    pub sf: serde_json::Value,
+}
