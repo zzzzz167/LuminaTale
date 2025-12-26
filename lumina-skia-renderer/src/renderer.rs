@@ -248,8 +248,8 @@ impl ApplicationHandler for SkiaRenderer {
 
                     self.ui_ctx.mouse_pressed = false;
 
-                    if self.gc_timer.elapsed().as_secs() >= 5 {
-                        self.assets.gc(Duration::from_secs(10));
+                    if self.gc_timer.elapsed().as_secs() >= 30 {
+                        self.assets.gc(Duration::from_secs(60));
                         self.gc_timer = Instant::now();
                     }
                     renderer.window.request_redraw();

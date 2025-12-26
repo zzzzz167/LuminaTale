@@ -33,6 +33,7 @@ pub struct CoreConfig {
 
     #[serde(default = "default_script_path")]
     pub script_path: String,
+    pub ahead_step: usize,
 }
 
 fn default_script_path() -> String {
@@ -61,6 +62,7 @@ impl Default for CoreConfig {
                 sprite_zindex: 1usize,
             },
             script_path: default_script_path(),
+            ahead_step: 20usize,
         }
     }
 }

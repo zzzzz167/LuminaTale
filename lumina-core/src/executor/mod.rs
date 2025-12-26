@@ -1,6 +1,7 @@
 mod frame;
 mod call_stack;
 mod walk;
+mod scanner;
 
 use std::sync::Arc;
 use mlua::Lua;
@@ -9,6 +10,7 @@ use frame::Frame;
 use call_stack::CallStack;
 
 use crate::runtime::Ctx;
+use crate::config::CoreConfig;
 use crate::event::{OutputEvent, InputEvent};
 use crate::executor::walk::{walk_stmt, NextAction, StmtEffect};
 use crate::lua_glue::{self, CommandBuffer, LuaCommand};
@@ -178,9 +180,11 @@ impl Executor {
                 }
             },
             NextAction::WaitChoice(arms) => {
+                self.trigger_preload(ctx);
                 self.pending_choice = Some(arms);
             },
             NextAction::WaitInput => {
+                self.trigger_preload(ctx);
                 self.pause = true;
             }
             NextAction::Jump(label) =>{
@@ -203,6 +207,23 @@ impl Executor {
                 self.call_stack.push(return_frame);
 
                 self.call_stack.push(Frame::new(block_id, Arc::from(stmts.as_slice()), 0));
+            }
+        }
+    }
+
+    fn trigger_preload(&mut self, ctx: &mut Ctx) {
+        let core_cfg: CoreConfig = lumina_shared::config::get("core");
+        
+        if let Some(frame) = self.call_stack.top_mut() {
+            let (images, audios) = scanner::Scanner::scan(
+                &frame.stmts,
+                frame.pc + 1,
+                core_cfg.ahead_step,
+                ctx
+            );
+
+            if !images.is_empty() || !audios.is_empty() {
+                ctx.push(OutputEvent::Preload { images, audios });
             }
         }
     }

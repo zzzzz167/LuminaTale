@@ -6,16 +6,19 @@ pub enum OutputEvent {
 
     PlayAudio {channel: String, path: String, fade_in: f32, volume: f32 ,looping: bool},
     StopAudio {channel: String, fade_out: f32},
-
-
+    
     NewScene {transition: String},
     NewSprite { target:String, transition: String },
     UpdateSprite { target:String, transition: String },
     HideSprite { target:String, transition: Option<String> },
 
+    Preload {
+        images: Vec<String>,
+        audios: Vec<String>,
+    },
+
     StepDone,
     End,
-    
 }
 
 #[derive(Debug, Clone)]

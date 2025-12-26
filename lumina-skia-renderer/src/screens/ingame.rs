@@ -103,7 +103,14 @@ impl InGameScreen {
                     }
                     self.animator.handle_new_scene(bg_name, transition);
                 },
-
+                OutputEvent::Preload { images, audios } => {
+                    for img_id in images {
+                        assets.get_image(&img_id);
+                    }
+                    for audio_id in audios {
+                        assets.get_static_audio(&audio_id);
+                    }
+                },
                 // --- 流程控制 ---
                 OutputEvent::ShowChoice { title, options } => {
                     self.active_choices = Some((title, options));
