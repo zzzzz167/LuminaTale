@@ -1,12 +1,13 @@
 use std::fs;
 use std::path::Path;
 use serde::Serialize;
-use lumina_core::config::CoreConfig;
+use lumina_core::config::{SystemConfig, AudioConfig, GraphicsConfig};
 
 #[derive(Serialize)]
 struct FullConfig {
-    core: CoreConfig,
-
+    system: SystemConfig,
+    audio: AudioConfig,
+    graphics: GraphicsConfig,
     // 只有开启 skia 时，才生成 window 配置节
     #[cfg(feature = "skia")]
     window: lumina_skia_renderer::config::WindowConfig,
@@ -20,10 +21,11 @@ pub fn ensure_config_exists(path: &str) {
     println!("Creating default configuration at '{}'...", path);
 
     let default_config = FullConfig {
-        core: CoreConfig::default(),
-
+        system: SystemConfig::default(),
         #[cfg(feature = "skia")]
         window: lumina_skia_renderer::config::WindowConfig::default(),
+        audio: AudioConfig::default(),
+        graphics: GraphicsConfig::default(),
     };
 
     let toml_str = toml::to_string_pretty(&default_config)

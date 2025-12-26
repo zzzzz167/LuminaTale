@@ -4,7 +4,6 @@ mod config_gen;
 use std::{env};
 use std::sync::Arc;
 use lumina_shared;
-use lumina_core::config::CoreConfig;
 use lumina_core::ScriptManager;
 
 fn main() {
@@ -24,8 +23,8 @@ fn main() {
     setup::init(is_tui_mode);
     log::info!(">>> Lumina Desktop Launcher Started (TUI: {}) <<<", is_tui_mode);
 
-    let core_cfg: CoreConfig = lumina_shared::config::get("core");
-    let project_root = &core_cfg.script_path;
+    let sys_cfg: lumina_core::config::SystemConfig = lumina_shared::config::get("system");
+    let project_root = &sys_cfg.script_path;
 
     log::info!("Loading project from: {:?}", project_root);
 

@@ -2,12 +2,28 @@ pub mod types;
 
 use crate::storager::types::SaveFile;
 use crate::{Ctx, Executor, ScriptManager};
+use crate::config::SystemConfig;
+use std::fs;
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub fn save(path: &str, ctx: Ctx, exe: Executor) -> anyhow::Result<()> {
-    let file = File::create(path)?;
+fn get_save_path(filename: &str) -> PathBuf {
+    let cfg: SystemConfig = lumina_shared::config::get("system");
+    let dir = Path::new(&cfg.save_path);
+
+    if !dir.exists() {
+        let _ = fs::create_dir_all(dir);
+    }
+
+    dir.join(filename)
+}
+
+pub fn save(filename: &str, ctx: Ctx, exe: Executor) -> anyhow::Result<()> {
+    let full_path = get_save_path(filename);
+
+    let file = File::create(full_path)?;
     let mut writer = BufWriter::new(file);
     let save = SaveFile {
         ctx: ctx.clone(),
@@ -18,8 +34,9 @@ pub fn save(path: &str, ctx: Ctx, exe: Executor) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn load(path: &str, manager: Arc<ScriptManager>) -> anyhow::Result<(Ctx, Executor)> {
-    let file = File::open(path)?;
+pub fn load(filename: &str, manager: Arc<ScriptManager>) -> anyhow::Result<(Ctx, Executor)> {
+    let full_path = get_save_path(filename);
+    let file = File::open(full_path)?;
     let mut reader = BufReader::new(file);
     let config = bincode::config::standard();
     let save: SaveFile = bincode::serde::decode_from_std_read(&mut reader, config)?;

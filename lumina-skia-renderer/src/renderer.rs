@@ -1,22 +1,22 @@
 use crate::config::WindowConfig;
 use crate::core::{AssetManager, AudioPlayer, Painter};
-use crate::screens::{ingame::InGameScreen, main_menu::MainMenuScreen, Screen, ScreenTransition};
+use crate::screens::{main_menu::MainMenuScreen, Screen, ScreenTransition};
 use crate::ui::UiDrawer;
 use crate::vk_utils::context::VulkanRenderContext;
 use crate::vk_utils::renderer::VulkanRenderer;
 
-use lumina_core::renderer::driver::ExecutorHandle;
-use lumina_core::Ctx;
+use lumina_core::config::SystemConfig;
 use lumina_core::manager::ScriptManager;
+use lumina_core::Ctx;
 use lumina_shared;
 use lumina_ui::{
     input::UiContext,
     Rect
 };
 use skia_safe::textlayout::{FontCollection, TypefaceFontProvider};
+use skia_safe::FontMgr;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use skia_safe::FontMgr;
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
@@ -51,9 +51,8 @@ pub struct SkiaRenderer {
 
 impl SkiaRenderer {
     pub fn new(manager: Arc<ScriptManager>) -> Self {
-        let cfg: WindowConfig = lumina_shared::config::get("window");
-        let asset_path = &cfg.assets.assets_path;
-        let assets = AssetManager::new(asset_path);
+        let sys_cfg: SystemConfig = lumina_shared::config::get("system");
+        let assets = AssetManager::new(&sys_cfg.assets_path);
 
         let mut font_collection = FontCollection::new();
         let mut font_provider = TypefaceFontProvider::new();
@@ -61,14 +60,10 @@ impl SkiaRenderer {
         font_collection.set_asset_font_manager(Some(font_provider.into()));
         font_collection.set_dynamic_font_manager(FontMgr::default());
 
-        let mut ctx = Ctx::default();
+        let ctx = Ctx::default();
 
-        let initial_screen: Box<dyn Screen> = if cfg.debug.skip_main_menu {
-            let driver = ExecutorHandle::new(&mut ctx, manager.clone());
-            Box::new(InGameScreen::new(driver))
-        } else {
-            Box::new(MainMenuScreen::new(manager.clone()))
-        };
+        let initial_screen: Box<dyn Screen> =
+            Box::new(MainMenuScreen::new(manager.clone()));
 
         Self {
             render_ctx: VulkanRenderContext::default(),

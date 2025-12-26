@@ -1,72 +1,68 @@
 use serde::{Deserialize, Serialize};
-use lumina_shared::config;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AudioCfg {
-    pub default_volume: f32,
-    pub voice_volume:   f32,
-    pub music_volume:   f32,
-    pub music_looping: bool,
-    pub fade_in: f32,
-    pub fade_out:  f32,
-    pub voice_link: String,
+pub struct SystemConfig {
+    pub assets_path: String, // 移到这里，Core也需要知道资源在哪
+    pub script_path: String,
+    pub save_path:   String, // ✅ 新增
+    pub log_path:    String, // ✅ 新增
+    pub log_level:   String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DebugCfg {
-    pub log_level: String,
-    pub show_ast:  bool,
+pub struct AudioConfig {
+    pub master_volume: f32, // 原 default_volume
+    pub music_volume:  f32,
+    pub voice_volume:  f32,
+    pub sound_volume:  f32, // 补上 sound
+    pub music_loop:    bool,
+    pub fade_in_sec:   f32,
+    pub fade_out_sec:  f32,
+    pub voice_link_char: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LayerCfg {
-    pub trans_effect: String,
+pub struct GraphicsConfig {
+    pub default_transition: String,
+    pub preload_ahead: usize, // 原 ahead_step
     pub scene_zindex: usize,
     pub sprite_zindex: usize,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CoreConfig {
-    pub debug: DebugCfg,
-    pub audio: AudioCfg,
-    pub layer: LayerCfg,
-
-    #[serde(default = "default_script_path")]
-    pub script_path: String,
-    pub ahead_step: usize,
-}
-
-fn default_script_path() -> String {
-    "game/".to_string()
-}
-
-impl Default for CoreConfig {
+impl Default for SystemConfig {
     fn default() -> Self {
-        CoreConfig {
-            audio: AudioCfg {
-                default_volume: 0.7,
-                voice_volume: 0.7,
-                voice_link: "_".to_string(),
-                music_volume: 0.7,
-                music_looping: true,
-                fade_in: 0f32,
-                fade_out: 0f32
-            },
-            debug: DebugCfg {
-                log_level: "debug".to_string(),
-                show_ast: false,
-            },
-            layer: LayerCfg {
-                trans_effect: "dissolve".to_string(),
-                scene_zindex: 0usize,
-                sprite_zindex: 1usize,
-            },
-            script_path: default_script_path(),
-            ahead_step: 20usize,
+        Self {
+            assets_path: "assets/".into(),
+            script_path: "game/".into(),
+            save_path:   "saves/".into(),
+            log_path:    "logs/".into(),
+            log_level:   "info".into(),
         }
     }
 }
 
-pub fn get() -> CoreConfig {
-    config::get::<CoreConfig>("core")
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            master_volume: 1.0,
+            music_volume: 0.7,
+            voice_volume: 0.8,
+            sound_volume: 0.8,
+            music_loop: true,
+            fade_in_sec: 0.2,
+            fade_out_sec: 0.2,
+            voice_link_char: "_".into(),
+        }
+    }
+}
+
+impl Default for GraphicsConfig {
+    fn default() -> Self {
+        Self {
+            default_transition: "dissolve".into(),
+            preload_ahead: 20,
+            scene_zindex: 0,
+            sprite_zindex: 10,
+        }
+    }
 }

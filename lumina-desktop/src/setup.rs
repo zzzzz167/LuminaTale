@@ -1,9 +1,10 @@
+use std::fs;
 use crate::config_gen;
 
 use std::fs::OpenOptions;
 use std::io::Write;
 use env_logger::{Builder, Target};
-use lumina_core::config::CoreConfig;
+use lumina_core::config::SystemConfig;
 
 pub fn init(is_tui: bool) {
     let config_path = "config.toml";
@@ -18,13 +19,17 @@ pub fn init(is_tui: bool) {
 }
 
 fn init_logger(is_tui: bool) {
-    let core_cfg: CoreConfig = lumina_shared::config::get("core");
-    let level = &core_cfg.debug.log_level;
+    let sys_cfg: SystemConfig = lumina_shared::config::get("system");
+    if let Err(e) = fs::create_dir_all(&sys_cfg.log_path) {
+        eprintln!("Failed to create log dir: {}", e);
+    }
+
+    let log_file_path = std::path::Path::new(&sys_cfg.log_path).join("lumina.log");
 
     let log_file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open("lumina.log")
+        .open(log_file_path)
         .expect("Failed to open log file");
 
     struct TeeWriter<W1, W2>(W1, W2);
@@ -41,7 +46,7 @@ fn init_logger(is_tui: bool) {
         }
     }
 
-    let mut builder = Builder::from_env(env_logger::Env::default().default_filter_or(level));
+    let mut builder = Builder::from_env(env_logger::Env::default().default_filter_or(&sys_cfg.log_level));
     if is_tui {
         builder.target(Target::Pipe(Box::new(log_file)));
     } else {

@@ -10,7 +10,7 @@ use frame::Frame;
 use call_stack::CallStack;
 
 use crate::runtime::Ctx;
-use crate::config::CoreConfig;
+use crate::config::GraphicsConfig;
 use crate::event::{OutputEvent, InputEvent};
 use crate::executor::walk::{walk_stmt, NextAction, StmtEffect};
 use crate::lua_glue::{self, CommandBuffer, LuaCommand};
@@ -221,13 +221,13 @@ impl Executor {
     }
 
     fn trigger_preload(&mut self, ctx: &mut Ctx) {
-        let core_cfg: CoreConfig = lumina_shared::config::get("core");
+        let gf_cfg: GraphicsConfig = lumina_shared::config::get("graphics");
 
         if let Some(frame) = self.call_stack.top_mut() {
             let (images, audios) = scanner::Scanner::scan(
                 &frame.stmts,
                 frame.pc + 1,
-                core_cfg.ahead_step,
+                gf_cfg.preload_ahead,
                 ctx
             );
 
