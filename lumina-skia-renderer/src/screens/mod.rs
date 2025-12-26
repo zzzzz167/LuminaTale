@@ -25,7 +25,7 @@ pub trait Screen {
         dt: f32,
         ctx: &mut Ctx,
         el: &ActiveEventLoop,
-        assets: &AssetManager,     // 新增
+        assets: &mut AssetManager,     // 新增
         audio: &mut AudioPlayer    // 新增
     ) -> ScreenTransition;
 

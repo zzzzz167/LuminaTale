@@ -157,6 +157,9 @@ impl ApplicationHandler for SkiaRenderer {
             },
 
             WindowEvent::RedrawRequested => {
+                self.assets.update();
+                self.audio_player.update(&mut self.assets);
+
                 let now = Instant::now();
                 let dt = now.duration_since(self.last_frame).as_secs_f32();
                 self.last_frame = now;
@@ -168,7 +171,7 @@ impl ApplicationHandler for SkiaRenderer {
                         dt,
                         &mut self.ctx,
                         event_loop,
-                        &self.assets,
+                        &mut self.assets,
                         &mut self.audio_player
                     );
                 }

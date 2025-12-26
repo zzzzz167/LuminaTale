@@ -32,7 +32,7 @@ impl InGameScreen {
         &mut self,
         ctx: &mut Ctx,
         el: &ActiveEventLoop,
-        assets: &AssetManager,
+        assets: &mut AssetManager,
         audio: &mut AudioPlayer
     ) {
         // 1. 收集事件，解开 ctx 的借用锁
@@ -52,9 +52,7 @@ impl InGameScreen {
             match event {
                 // --- 音频处理 ---
                 OutputEvent::PlayAudio { channel, path, fade_in, volume, looping } => {
-                    if let Some(full_path) = assets.get_audio_path(&path) {
-                        audio.play(&channel, full_path, volume, fade_in, looping);
-                    }
+                    audio.play(assets, &channel, &path, volume, fade_in, looping);
                 },
                 OutputEvent::StopAudio { channel, fade_out } => {
                     audio.stop(&channel, fade_out);
@@ -128,7 +126,7 @@ impl Screen for InGameScreen {
         dt: f32,
         ctx: &mut Ctx,
         el: &ActiveEventLoop,
-        assets: &AssetManager,
+        assets: &mut AssetManager,
         audio: &mut AudioPlayer
     ) -> ScreenTransition {
 

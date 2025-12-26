@@ -10,9 +10,9 @@ vulkano = "0.35.2"
 log = "0.4.29"
 ash = { version = "0.38.0+1.3.281", features = ["linked"] }
 lumina-core = { path = "../lumina-core" }
-viviscript-core = {path = "../viviscript-core"}
 walkdir = "2.5.0"
 serde = { version = "1.0.228", features = ["derive"] }
 lumina-shared = { path = "../lumina-shared" }
 kira = { version = "0.11.0" ,features = ["mp3", "ogg", "wav"] }
 lumina-ui = {path = "../lumina-ui"}
+crossbeam-channel = "0.5.15"

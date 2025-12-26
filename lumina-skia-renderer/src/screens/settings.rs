@@ -35,7 +35,7 @@ impl Screen for SettingsScreen {
         _dt: f32,
         _ctx: &mut Ctx,
         _el: &ActiveEventLoop,
-        _assets: &AssetManager,
+        _assets: &mut AssetManager,
         _audio: &mut AudioPlayer
     ) -> ScreenTransition {
         if self.should_close {

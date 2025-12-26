@@ -35,7 +35,7 @@ impl Screen for MainMenuScreen {
         _dt: f32,
         _ctx: &mut Ctx,
         _el: &ActiveEventLoop,
-        _assets: &AssetManager,
+        _assets: &mut AssetManager,
         _audio: &mut AudioPlayer
     ) -> ScreenTransition {
         // 将 draw 中产生的跳转指令提取出来返回给 Renderer

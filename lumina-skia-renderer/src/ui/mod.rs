@@ -142,21 +142,11 @@ impl <'a> UiRenderer for UiDrawer<'a> {
         if let Some(sk_image) = self.assets.get_image(image_id) {
             let sk_rect = self.to_skia_rect(rect);
             let mut paint = Paint::default();
-
-            // 设置染色 (Skia 会用这个颜色去“混合”图片)
-            // 如果是 WHITE，则是原图；如果是 RED，图片会变红
             paint.set_color(self.to_skia_color(tint));
+
             paint.set_anti_alias(true);
 
-            // 绘制图片 (默认拉伸填满 Dest Rect)
-            // 未来如果需要 Fit/Cover 模式，需要在这里自己计算 sk_rect 的比例
             self.canvas.draw_image_rect(sk_image, None, sk_rect, &paint);
-        } else {
-            // 图片丢失：画一个显眼的洋红色方块占位，方便调试
-            let sk_rect = self.to_skia_rect(rect);
-            let mut paint = Paint::default();
-            paint.set_color(skia_safe::Color::MAGENTA);
-            self.canvas.draw_rect(sk_rect, &paint);
         }
     }
 
