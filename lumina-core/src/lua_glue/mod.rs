@@ -30,6 +30,7 @@ pub fn init_lua(lua: &Lua) -> CommandBuffer {
 
     api::system::register(lua, &lumina, &cmd_buffer).expect("Failed to register system API");
     api::audio::register(lua, &lumina, &cmd_buffer).expect("Failed to register audio API");
+    api::visual::register(lua, &lumina, &cmd_buffer).expect("Failed to register visual API");
 
     globals.set("lumina", lumina).expect("Failed to register audio API");
     cmd_buffer

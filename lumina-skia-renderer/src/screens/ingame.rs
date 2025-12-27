@@ -113,7 +113,10 @@ impl InGameScreen {
                 },
                 OutputEvent::SetVolume {channel, value} => {
                     audio.set_channel_volume(&channel, value);
-                }
+                },
+                OutputEvent::ModifyVisual { target, props, duration, easing } => {
+                    self.animator.handle_modify_visual(target, props, duration, easing);
+                },
                 // --- 流程控制 ---
                 OutputEvent::ShowChoice { title, options } => {
                     self.active_choices = Some((title, options));

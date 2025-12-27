@@ -197,6 +197,10 @@ impl Executor {
                 LuaCommand::SetVolume {channel, value} => {
                     log::info!("Lua set volume: {} -> {}", channel, value);
                     ctx.push(OutputEvent::SetVolume {channel, value});
+                },
+                LuaCommand::ModifyVisual { target, props, duration, easing } => {
+                    log::info!("Lua visual mod -> {}: {:?}", target, props);
+                    ctx.push(OutputEvent::ModifyVisual { target, props, duration, easing });
                 }
             }
         }

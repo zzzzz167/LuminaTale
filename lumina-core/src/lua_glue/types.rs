@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug,Clone)]
@@ -5,6 +6,12 @@ pub enum LuaCommand {
     Jump(String),
     SaveGlobal,
     SetVolume { channel: String, value: f32 },
+    ModifyVisual {
+        target: String,
+        props: HashMap<String, f32>,
+        duration: f32,
+        easing: String,
+    },
 }
 
 #[derive(Debug,Clone)]

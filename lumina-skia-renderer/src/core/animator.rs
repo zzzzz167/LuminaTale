@@ -49,21 +49,31 @@ impl RenderSprite {
         }
         name
     }
+
+    pub fn set_prop(&mut self, key: &str, val: f32) {
+        match key {
+            "x" => self.pos.x = val,
+            "y" => self.pos.y = val,
+            "alpha" | "opacity" => self.alpha = val.clamp(0.0, 1.0),
+            "scale" => self.scale = val,
+            "rotation" | "angle" => self.rotation = val,
+            _ => {}
+        }
+    }
 }
 
-struct Tweener {
+struct GenericTweener {
     target: String,
     duration: f32,
     elapsed: f32,
-    start_pos: Vec2,
-    end_pos: Vec2,
-    start_alpha: f32,
-    end_alpha: f32,
+    // 存储 (属性名, (起始值, 目标值))
+    props: HashMap<String, (f32, f32)>,
+    easing: String,
 }
 
 pub struct SceneAnimator {
     pub sprites: HashMap<String, RenderSprite>,
-    tweens: Vec<Tweener>,
+    generic_tweens: Vec<GenericTweener>,
     screen_size: (f32, f32),
 }
 
@@ -71,7 +81,7 @@ impl SceneAnimator {
     pub fn new() -> Self {
         Self {
             sprites: HashMap::new(),
-            tweens: Vec::new(),
+            generic_tweens: Vec::new(),
             screen_size: (1920.0, 1080.0),
         }
     }
@@ -82,15 +92,23 @@ impl SceneAnimator {
 
     pub fn update(&mut self, dt: f32) {
         let mut finished = Vec::new();
-        for (i, tween) in self.tweens.iter_mut().enumerate() {
+
+        for (i, tween) in self.generic_tweens.iter_mut().enumerate() {
             tween.elapsed += dt;
             let t = (tween.elapsed / tween.duration).clamp(0.0, 1.0);
-            let ease = t * (2.0 - t);
+
+            let progress = match tween.easing.as_str() {
+                "linear" => t,
+                "ease_out" => t * (2.0 - t), // Quad ease out
+                "ease_in" => t * t,
+                _ => t,
+            };
 
             if let Some(sprite) = self.sprites.get_mut(&tween.target) {
-                sprite.pos.x = tween.start_pos.x + (tween.end_pos.x - tween.start_pos.x) * ease;
-                sprite.pos.y = tween.start_pos.y + (tween.end_pos.y - tween.start_pos.y) * ease;
-                sprite.alpha = tween.start_alpha + (tween.end_alpha - tween.start_alpha) * ease;
+                for (key, (start_val, end_val)) in &tween.props {
+                    let current_val = start_val + (end_val - start_val) * progress;
+                    sprite.set_prop(key, current_val);
+                }
             }
 
             if t >= 1.0 {
@@ -99,14 +117,54 @@ impl SceneAnimator {
         }
 
         for i in finished.iter().rev() {
-            self.tweens.remove(*i);
+            self.generic_tweens.remove(*i);
         }
 
         self.sprites.retain(|target, sprite| {
             let is_visible = sprite.alpha > 0.001;
-            let has_active_tween = self.tweens.iter().any(|t| t.target == *target);
+            let has_active_tween = self.generic_tweens.iter().any(|t| t.target == *target);
             is_visible || has_active_tween
         });
+    }
+
+    pub fn handle_modify_visual(
+        &mut self,
+        target: String,
+        props: HashMap<String, f32>,
+        duration: f32,
+        easing: String
+    ) {
+        if let Some(sprite) = self.sprites.get_mut(&target) {
+            if duration <= 0.001 {
+                for (k, v) in props {
+                    sprite.set_prop(&k, v);
+                }
+                self.generic_tweens.retain(|t| t.target != target);
+            } else {
+                let mut tween_props = HashMap::new();
+                for (k, target_val) in props {
+                    // 获取当前值作为起点
+                    let start_val = match k.as_str() {
+                        "x" => sprite.pos.x,
+                        "y" => sprite.pos.y,
+                        "alpha" | "opacity" => sprite.alpha,
+                        "scale" => sprite.scale,
+                        "rotation" | "angle" => sprite.rotation,
+                        _ => continue, // 不支持动画的属性跳过
+                    };
+                    tween_props.insert(k, (start_val, target_val));
+                }
+                self.generic_tweens.retain(|t| t.target != target);
+
+                self.generic_tweens.push(GenericTweener {
+                    target,
+                    duration,
+                    elapsed: 0.0,
+                    props: tween_props,
+                    easing,
+                });
+            }
+        }
     }
 
     pub fn handle_new_sprite(&mut self, target: String, texture: String, trans: String, pos_str: Option<&str>, attrs: Vec<String>) {
@@ -122,14 +180,15 @@ impl SceneAnimator {
 
         if trans == "fade_in" || trans == "dissolve" {
             sprite.alpha = 0.0;
-            self.tweens.push(Tweener {
+            let mut props = HashMap::new();
+            props.insert("alpha".to_string(), (0.0, 1.0));
+
+            self.generic_tweens.push(GenericTweener {
                 target: target.clone(),
                 duration: 0.5,
                 elapsed: 0.0,
-                start_pos: sprite.pos,
-                end_pos: sprite.pos,
-                start_alpha: 0.0,
-                end_alpha: 1.0,
+                props,
+                easing: "linear".to_string(),
             });
         }
 
@@ -151,14 +210,15 @@ impl SceneAnimator {
                     _ => w * 0.5,
                 };
 
-                self.tweens.push(Tweener {
+                let mut props = HashMap::new();
+                props.insert("x".to_string(), (sprite.pos.x, new_x));
+
+                self.generic_tweens.push(GenericTweener {
                     target: target.clone(),
                     duration: 0.5,
                     elapsed: 0.0,
-                    start_pos: sprite.pos,
-                    end_pos: Vec2::new(new_x, sprite.pos.y),
-                    start_alpha: sprite.alpha,
-                    end_alpha: sprite.alpha,
+                    props,
+                    easing: "ease_out".to_string(),
                 });
             }
         }
@@ -169,25 +229,26 @@ impl SceneAnimator {
 
         if should_fade {
             if let Some(sprite) = self.sprites.get(&target) {
-                self.tweens.push(Tweener {
+                let mut props = HashMap::new();
+                props.insert("alpha".to_string(), (sprite.alpha, 0.0));
+
+                self.generic_tweens.push(GenericTweener {
                     target: target.clone(),
                     duration: 0.5,
                     elapsed: 0.0,
-                    start_pos: sprite.pos,
-                    end_pos: sprite.pos,
-                    start_alpha: sprite.alpha,
-                    end_alpha: 0.0,
+                    props,
+                    easing: "linear".to_string(),
                 });
             }
         } else {
             self.sprites.remove(&target);
-            self.tweens.retain(|t| t.target != target);
+            self.generic_tweens.retain(|t| t.target != target);
         }
     }
 
     pub fn handle_new_scene(&mut self, bg_name: Option<String>, _trans: String) {
         self.sprites.clear();
-        self.tweens.clear();
+        self.generic_tweens.clear();
 
         if let Some(bg) = bg_name {
             // 背景通常没有 attrs，传空 Vec

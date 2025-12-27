@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 #[derive(Debug, Clone)]
 pub enum OutputEvent {
     ShowNarration { lines: Vec<String> },
@@ -19,6 +21,12 @@ pub enum OutputEvent {
     SetVolume {
         channel: String,
         value: f32,
+    },
+    ModifyVisual {
+        target: String,
+        props: HashMap<String, f32>,
+        duration: f32,
+        easing: String
     },
 
     StepDone,
