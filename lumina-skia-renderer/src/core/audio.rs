@@ -48,6 +48,7 @@ pub struct AudioPlayer{
     active_channels: HashMap<String, AudioHandle>,
 
     pending_queue: Vec<PendingPlay>,
+    channel_volumes: HashMap<String, f32>,
 }
 
 impl AudioPlayer{
@@ -59,6 +60,7 @@ impl AudioPlayer{
             manager,
             active_channels: HashMap::new(),
             pending_queue: Vec::new(),
+            channel_volumes: HashMap::new(),
         }
     }
 
@@ -70,16 +72,30 @@ impl AudioPlayer{
         }
     }
 
+    pub fn set_channel_volume(&mut self, channel: &str, volume: f32) {
+        self.channel_volumes.insert(channel.to_string(), volume);
+        if let Some(handle) = self.active_channels.get_mut(channel) {
+            let db = Self::amplitude_to_db(volume);
+            handle.set_volume(db, Tween {
+                duration: Duration::from_millis(100),
+                ..Default::default()
+            });
+        }
+    }
+
     pub fn play(
         &mut self,
         assets: &mut AssetManager,
         channel: &str,
         resource_id: &str,
-        volume: f32,
+        base_volume: f32,
         fade_in_secs: f32,
         looping: bool
     ) {
         self.stop(channel, 0.1);
+
+        let system_vol = *self.channel_volumes.get(channel).unwrap_or(&1.0);
+        let final_volume = base_volume * system_vol;
 
         let is_streaming = channel == "music" || channel == "bgm" || resource_id.starts_with("bgm_");
 
@@ -91,13 +107,13 @@ impl AudioPlayer{
         };
 
         if let Some(audio_source) = source {
-            self.play_internal(channel, audio_source, volume, fade_in_secs, looping);
+            self.play_internal(channel, audio_source, final_volume, fade_in_secs, looping);
         } else {
             // 没加载好，加入队列
             self.pending_queue.push(PendingPlay {
                 channel: channel.to_string(),
                 resource_id: resource_id.to_string(),
-                volume,
+                volume: base_volume,
                 fade_in_secs,
                 looping,
                 is_streaming,
@@ -130,11 +146,12 @@ impl AudioPlayer{
             };
 
             if let Some(audio_source) = source {
-                // 加载完成 -> 播放
+                let system_vol = *self.channel_volumes.get(&req.channel).unwrap_or(&1.0);
+                let final_volume = req.volume * system_vol;
                 self.play_internal(
                     &req.channel,
                     audio_source,
-                    req.volume,
+                    final_volume,
                     req.fade_in_secs,
                     req.looping
                 );

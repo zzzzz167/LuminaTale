@@ -175,7 +175,7 @@ impl Executor {
         self.manager.get_label(name)
     }
 
-    fn process_lua_commands(&mut self, _ctx: &mut Ctx) -> bool {
+    fn process_lua_commands(&mut self, ctx: &mut Ctx) -> bool {
         let cmds = self.cmd_buffer.drain();
         if cmds.is_empty() { return false; }
         for cmd in cmds {
@@ -193,6 +193,10 @@ impl Executor {
                     } else {
                         log::info!("Global data saved successfully.");
                     }
+                },
+                LuaCommand::SetVolume {channel, value} => {
+                    log::info!("Lua set volume: {} -> {}", channel, value);
+                    ctx.push(OutputEvent::SetVolume {channel, value});
                 }
             }
         }

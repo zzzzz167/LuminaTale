@@ -16,6 +16,10 @@ pub enum OutputEvent {
         images: Vec<String>,
         audios: Vec<String>,
     },
+    SetVolume {
+        channel: String,
+        value: f32,
+    },
 
     StepDone,
     End,

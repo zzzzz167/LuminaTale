@@ -1,43 +1,13 @@
+pub mod types;
+pub mod api;
+
+pub use types::{CommandBuffer, LuaCommand};
+
 use mlua::{Lua, LuaSerdeExt, Table};
-use std::sync::{Arc, Mutex};
 use log::{error, info};
-
-#[derive(Debug,Clone)]
-pub enum LuaCommand {
-    Jump(String),
-    SaveGlobal
-}
-
-#[derive(Debug,Clone)]
-pub struct CommandBuffer {
-    queue: Arc<Mutex<Vec<LuaCommand>>>,
-}
-
-impl CommandBuffer {
-    pub fn new() -> Self {
-        Self {
-            queue: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-
-    pub fn push(&self, cmd: LuaCommand) {
-        if let Ok(mut q) = self.queue.lock() {
-            q.push(cmd);
-        }
-    }
-
-    pub fn drain(&self) -> Vec<LuaCommand> {
-        if let Ok(mut q) = self.queue.lock() {
-            std::mem::take(&mut q)
-        } else {
-            vec![]
-        }
-    }
-}
 
 pub fn init_lua(lua: &Lua) -> CommandBuffer {
     let cmd_buffer = CommandBuffer::new();
-    let cb_clone = cmd_buffer.clone();
 
     let globals = lua.globals();
 
@@ -51,25 +21,17 @@ pub fn init_lua(lua: &Lua) -> CommandBuffer {
         globals.set("sf", sf_table).unwrap();
     }
 
-    let lumina = lua.create_table().unwrap();
-    let cb = cb_clone.clone();
-    lumina.set("jump", lua.create_function(move |_, target: String| {
-        cb.push(LuaCommand::Jump(target));
-        Ok(())
-    }).unwrap()).unwrap();
-
-    let cb_save = cb_clone.clone();
-    lumina.set("save_global", lua.create_function(move |_, ()| {
-        cb_save.push(LuaCommand::SaveGlobal);
-        Ok(())
-    }).unwrap()).unwrap();
-
     globals.set("print", lua.create_function(|_, msg: String| {
         info!("[Lua] {}", msg);
         Ok(())
     }).unwrap()).unwrap();
 
-    globals.set("lumina", lumina).unwrap();
+    let lumina = lua.create_table().unwrap();
+
+    api::system::register(lua, &lumina, &cmd_buffer).expect("Failed to register system API");
+    api::audio::register(lua, &lumina, &cmd_buffer).expect("Failed to register audio API");
+
+    globals.set("lumina", lumina).expect("Failed to register audio API");
     cmd_buffer
 }
 

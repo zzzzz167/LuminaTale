@@ -111,6 +111,9 @@ impl InGameScreen {
                         assets.get_static_audio(&audio_id);
                     }
                 },
+                OutputEvent::SetVolume {channel, value} => {
+                    audio.set_channel_volume(&channel, value);
+                }
                 // --- 流程控制 ---
                 OutputEvent::ShowChoice { title, options } => {
                     self.active_choices = Some((title, options));
