@@ -59,22 +59,9 @@ impl InGameScreen {
                 },
 
                 // --- 视觉处理 (委托给 Animator) ---
-                OutputEvent::NewSprite { target, transition } => {
-                    let texture_name = ctx.characters.get(&target)
-                        .and_then(|ch| ch.image_tag.clone())
-                        .unwrap_or_else(|| target.clone());
-
-                    let (pos_str, attrs) = get_sprite_info(&target);
-                    let attrs = attrs.unwrap_or_default();
-
-                    self.animator.handle_new_sprite(
-                        target,
-                        texture_name,
-                        transition,
-                        pos_str.as_deref(),
-                        attrs
-                    );
-                },
+                OutputEvent::NewSprite { target, texture, pos_str, transition, attrs } => {
+                    self.animator.handle_new_sprite(target, texture, pos_str.as_deref(), transition, attrs);
+                }
                 OutputEvent::UpdateSprite { target, transition } => {
                     let (pos_str, attrs) = get_sprite_info(&target);
                     let attrs = attrs.unwrap_or_default();
@@ -117,6 +104,14 @@ impl InGameScreen {
                 OutputEvent::ModifyVisual { target, props, duration, easing } => {
                     self.animator.handle_modify_visual(target, props, duration, easing);
                 },
+                OutputEvent::RegisterLayout { name, config } => {
+                    log::info!("Renderer registering layout: {}", name);
+                    self.animator.handle_register_layout(name, config);
+                }
+                OutputEvent::RegisterTransition { name, config } => {
+                    log::info!("Renderer registering transition: {}", name);
+                    self.animator.handle_register_transition(name, config);
+                }
                 // --- 流程控制 ---
                 OutputEvent::ShowChoice { title, options } => {
                     self.active_choices = Some((title, options));
@@ -155,6 +150,7 @@ impl Screen for InGameScreen {
 
         // 3. 更新动画状态
         self.animator.update(dt);
+        self.driver.tick(dt);
 
         ScreenTransition::None
     }

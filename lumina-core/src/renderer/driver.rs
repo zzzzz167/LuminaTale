@@ -17,9 +17,10 @@ impl ExecutorHandle {
     }
 
     #[inline]
-    pub fn step(&mut self, ctx: &mut Ctx) -> bool {
-        self.exe.step(ctx)
-    }
+    pub fn step(&mut self, ctx: &mut Ctx) -> bool { self.exe.step(ctx) }
+    
+    #[inline]
+    pub fn tick(&mut self, dt: f32) { self.exe.tick(dt); }
 
     #[inline]
     pub fn feed(&mut self, ctx: &mut Ctx, ev: InputEvent) {

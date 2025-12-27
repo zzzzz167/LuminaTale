@@ -1,5 +1,6 @@
 use mlua::{Lua, Table, Value};
 use std::collections::HashMap;
+use crate::event::{LayoutConfig, TransitionConfig};
 use crate::lua_glue::types::{CommandBuffer, LuaCommand};
 
 pub fn register(lua: &Lua, table: &Table, cb: &CommandBuffer) -> mlua::Result<()> {
@@ -26,5 +27,47 @@ pub fn register(lua: &Lua, table: &Table, cb: &CommandBuffer) -> mlua::Result<()
         });
         Ok(())
     })?)?;
+
+    let cb_layout = cb.clone();
+    table.set("register_layout", lua.create_function(move |_, (name, tbl): (String, Table)| {
+        cb_layout.push(LuaCommand::RegisterLayout {
+            name,
+            config: LayoutConfig {
+                x: tbl.get("x").unwrap_or(0.5),
+                y: tbl.get("y").unwrap_or(1.0),
+                anchor_x: tbl.get("anchor_x").unwrap_or(0.5),
+                anchor_y: tbl.get("anchor_y").unwrap_or(1.0),
+            }
+        });
+       Ok(())
+    })?)?;
+
+    let cb_trans = cb.clone();
+    table.set("register_transition", lua.create_function(move |_, (name, tbl): (String, Table)| {
+        let mut props = HashMap::new();
+        if let Ok(p) = tbl.get::<Table>("props") {
+            for pair in p.pairs::<String, Table>(){
+                if let Ok((k, v)) = pair {
+                    props.insert(k, (v.get("from").ok(), v.get("to").unwrap_or(0.0)));
+                }
+            }
+        }
+        cb_trans.push(LuaCommand::RegisterTransition {
+            name,
+            config: TransitionConfig {
+                duration: tbl.get("duration").unwrap_or(0.5),
+                easing: tbl.get("easing").unwrap_or("linear".into()),
+                props,
+            }
+        });
+       Ok(())
+    })?)?;
+
+    let cb_mark = cb.clone();
+    table.set("mark_as_dynamic", lua.create_function(move |_, name: String| {
+        cb_mark.push(LuaCommand::MarkDynamic { name });
+        Ok(())
+    })?)?;
+    
     Ok(())
 }

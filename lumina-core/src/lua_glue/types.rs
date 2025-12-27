@@ -12,6 +12,9 @@ pub enum LuaCommand {
         duration: f32,
         easing: String,
     },
+    RegisterLayout { name: String, config: crate::event::LayoutConfig },
+    RegisterTransition { name: String, config: crate::event::TransitionConfig },
+    MarkDynamic { name: String },
 }
 
 #[derive(Debug,Clone)]

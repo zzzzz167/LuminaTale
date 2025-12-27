@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::ops::Add;
 use std::sync::OnceLock;
 use viviscript_core::ast::{Stmt, AudioAction, ShowAttr, Transition};
@@ -37,7 +38,7 @@ fn interpolate(lua: &Lua, text: &str) -> String {
     }).to_string()
 }
 
-pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
+pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt, dynamic_set: &HashSet<String>) -> StmtEffect {
     log::trace!("walk_stmt: {:?}", stmt);
 
     let audio_cfg: AudioConfig = config::get("audio"); // ✅ 按需获取
@@ -149,61 +150,112 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt) -> StmtEffect {
             NextAction::Continue
         }
         Stmt::Show {target, attrs, position, transition, ..}=>{
-            let mut old = false;
+            let mut is_update = false;
+
+            let raw_trans = transition.as_ref()
+                .map(|t| t.effect.clone())
+                .unwrap_or_else(|| gfx_cfg.default_transition.clone());
+
+            let trans_name = interpolate(lua, &raw_trans);
             if let Some(layer) = ctx.layer_record.layer.get_mut("master") {
                 if let Some(c) = layer.iter_mut().find(|x| x.target == *target) {
-                    old = true;
+                    is_update = true;
+
                     if let Some(attrs_list) = attrs {
                         for attr in attrs_list {
                             match attr {
-                                ShowAttr::Add(a) =>{
+                                ShowAttr::Add(a) => {
+                                    let val = interpolate(lua, a);
                                     c.attrs.pop();
-                                    c.attrs.push(a.to_string());
+                                    c.attrs.push(val);
                                 },
                                 ShowAttr::Remove(a) => {
-                                    if a == c.attrs.last().unwrap(){
+                                    let val = interpolate(lua, a);
+                                    if c.attrs.last() == Some(&val) {
                                         c.attrs.pop();
                                     }
                                 }
                             }
                         }
                     }
-                    if let Some(trans) = position {
-                        c.position = Some(trans.to_string());
+                    if let Some(pos_raw) = position {
+                        let pos = interpolate(lua, pos_raw);
+                        c.position = Some(pos);
                     }
-                    events.push(OutputEvent::UpdateSprite {target: target.clone(), transition:transition.clone()
-                        .unwrap_or(Transition{effect: gfx_cfg.default_transition.clone()}).effect
+                    if dynamic_set.contains(&trans_name) {
+                        events.push(OutputEvent::UpdateSprite {
+                            target: target.clone(),
+                            transition: "".to_string(),
+                        });
+                        let code = format!("lumina.tween.run_dynamic('{}', '{}')", trans_name, target);
+                        if let Err(e) = lua.load(&code).exec() {
+                            log::error!("Dynamic tween error: {}", e);
+                        }
+                    } else {
+                        events.push(OutputEvent::UpdateSprite {
+                            target: target.clone(),
+                            transition: trans_name.clone(),
+                        });
+                    }
+                }
+            }
+
+            if !is_update {
+                // [Step 3.1] 准备数据
+                let final_attrs: Vec<String> = attrs.clone().unwrap_or_default().into_iter()
+                    .filter_map(|x| match x {
+                        ShowAttr::Add(s) => Some(interpolate(lua, &s)),
+                        _ => None
+                    }).collect();
+
+                let final_pos = position.as_ref().map(|p| interpolate(lua, p));
+
+                // [Step 3.2] 写入 Ctx
+                ctx.layer_record.layer.get_mut("master").unwrap().push(Sprite {
+                    target: target.to_string(),
+                    attrs: final_attrs.clone(),
+                    position: final_pos.clone(),
+                    zindex: 1,
+                });
+
+                // [Step 3.3] 发送事件与动态拦截
+                if dynamic_set.contains(&trans_name) {
+                    events.push(OutputEvent::NewSprite {
+                        target: target.clone(),
+                        texture: target.clone(),
+                        pos_str: final_pos,
+                        transition: None,
+                        attrs: final_attrs,
+                    });
+
+                    let code = format!("lumina.tween.run_dynamic('{}', '{}')", trans_name, target);
+                    if let Err(e) = lua.load(&code).exec() {
+                        log::error!("Dynamic tween error: {}", e);
+                    }
+                } else {
+                    events.push(OutputEvent::NewSprite {
+                        target: target.clone(),
+                        texture: target.clone(),
+                        pos_str: final_pos,
+                        transition: Some(trans_name),
+                        attrs: final_attrs,
                     });
                 }
             }
 
-            if !old{
-                ctx.layer_record.layer.get_mut("master").unwrap()
-                    .push(Sprite {
-                        target:target.to_string(),
-                        attrs: attrs.clone().unwrap_or(vec![]).into_iter()
-                            .filter_map(|x| match x{
-                                ShowAttr::Add(s) => Some(s.clone()),
-                                _=>None
-                            }).collect(),
-                        position: position.clone(),
-                        zindex: 1usize,
-                    });
-                events.push(OutputEvent::NewSprite {target: target.clone(), transition:transition.clone()
-                    .unwrap_or(Transition{effect: gfx_cfg.default_transition}).effect
-                });
-            }
             NextAction::Continue
         },
         Stmt::Hide {target, transition, ..} => {
-            if let Some(pos) = ctx.layer_record.layer.get("master").unwrap()
-                .iter().position(|x| x.target == *target) {
-                ctx.layer_record.layer.get_mut("master").unwrap().remove(pos);
-                events.push(OutputEvent::HideSprite {
-                    target: target.clone(),
-                    transition: transition.as_ref().map(|t| t.effect.clone())
-                });
+            let trans_opt = transition.as_ref().map(|t| interpolate(lua, &t.effect));
+
+            if let Some(layer) = ctx.layer_record.layer.get_mut("master") {
+                layer.retain(|x| x.target != *target);
             }
+
+            events.push(OutputEvent::HideSprite {
+                target: target.clone(),
+                transition: trans_opt,
+            });
             NextAction::Continue
         }
         Stmt::LuaBlock {code,..} => {

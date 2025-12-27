@@ -4,6 +4,8 @@ mod walk;
 mod scanner;
 
 use std::sync::Arc;
+use std::collections::HashSet;
+use log::{error, info, warn};
 use mlua::Lua;
 use viviscript_core::ast::Stmt;
 use frame::Frame;
@@ -25,7 +27,8 @@ pub struct Executor {
     pending_choice: Option<Vec<(String, Vec<Stmt>)>>,
     pause: bool,
 
-    manager: Arc<ScriptManager>
+    manager: Arc<ScriptManager>,
+    dynamic_registry: HashSet<String>,
 }
 
 impl std::fmt::Debug for Executor {
@@ -42,14 +45,30 @@ impl Executor {
         let lua = Lua::new();
         let cmd_buffer = lua_glue::init_lua(&lua);
 
-        Executor {
+        let exe = Self {
             call_stack: CallStack::default(),
             lua,
             cmd_buffer,
             pending_choice: None,
             pause: false,
+            dynamic_registry: HashSet::new(),
             manager,
+        };
+
+        let sys_cfg: crate::config::SystemConfig = lumina_shared::config::get("system");
+        let boot_path = std::path::Path::new(&sys_cfg.script_path).join("boot.lua");
+        if boot_path.exists() {
+            info!("Loading boot script: {:?}", boot_path);
+            if let Ok(code) = std::fs::read_to_string(&boot_path) {
+                if let Err(e) = exe.lua.load(&code).exec() {
+                    error!("Failed to load boot.lua: {}", e);
+                }
+            }
+        } else {
+            warn!("boot.lua not found at {:?}, using default settings.", boot_path);
         }
+
+        exe
     }
     
     pub fn start(&mut self, ctx: &mut Ctx, label: &str) {
@@ -102,7 +121,7 @@ impl Executor {
         if let Err(e) = crate::storager::save_global("global.json", &sf_data) {
             log::error!("Failed to auto-save global.json: {}", e);
         } else {
-            log::info!("Global data auto-saved.");
+            info!("Global data auto-saved.");
         }
     }
 
@@ -114,15 +133,15 @@ impl Executor {
         match crate::storager::load_global("global.json") {
             Ok(data) => {
                 if !data.is_null() {
-                    log::info!("Global data loaded.");
+                    info!("Global data loaded.");
                     lua_glue::inject_sf(&self.lua, &data);
                 } else {
-                    log::info!("No global data found (new game).");
+                    info!("No global data found (new game).");
                 }
             }
             Err(e) => {
                 // 只有真正的 IO 错误才报 Error，文件不存在是正常的
-                log::warn!("Check global data: {}", e);
+                warn!("Check global data: {}", e);
             }
         }
     }
@@ -147,6 +166,13 @@ impl Executor {
                 log::error!("Restore failed: Code block '{}' not found in project.", fs.label);
                 panic!("Save file mismatch or Script changed");
             }
+        }
+    }
+
+    pub fn tick(&mut self, dt: f32) {
+        let globals = self.lua.globals();
+        if let Ok(update_fn) = globals.get::<mlua::Function>("lumina_update") {
+            let _ = update_fn.call::<()>(dt);
         }
     }
 
@@ -181,26 +207,34 @@ impl Executor {
         for cmd in cmds {
             match cmd {
                 LuaCommand::Jump(target) => {
-                    log::info!("Lua Jump -> {}", target);
+                    info!("Lua Jump -> {}", target);
                     self.perform_jump(&target);
                 },
                 LuaCommand::SaveGlobal => {
-                    log::info!("Lua requested global save.");
+                    info!("Lua requested global save.");
                     let sf_data = lua_glue::extract_sf(&self.lua);
 
                     if let Err(e) = crate::storager::save_global("global.json", &sf_data) {
                         log::error!("Failed to save global.json: {}", e);
                     } else {
-                        log::info!("Global data saved successfully.");
+                        info!("Global data saved successfully.");
                     }
                 },
                 LuaCommand::SetVolume {channel, value} => {
-                    log::info!("Lua set volume: {} -> {}", channel, value);
+                    info!("Lua set volume: {} -> {}", channel, value);
                     ctx.push(OutputEvent::SetVolume {channel, value});
                 },
                 LuaCommand::ModifyVisual { target, props, duration, easing } => {
-                    log::info!("Lua visual mod -> {}: {:?}", target, props);
                     ctx.push(OutputEvent::ModifyVisual { target, props, duration, easing });
+                },
+                LuaCommand::RegisterLayout { name, config } => {
+                    ctx.push(OutputEvent::RegisterLayout { name, config });
+                },
+                LuaCommand::RegisterTransition { name, config } => {
+                    ctx.push(OutputEvent::RegisterTransition { name, config });
+                },
+                LuaCommand::MarkDynamic { name } => {
+                    self.dynamic_registry.insert(name);
                 }
             }
         }
@@ -221,7 +255,7 @@ impl Executor {
             frame.current().expect("no stmt").clone()
         };
 
-        let StmtEffect { events, next} = walk_stmt(ctx, &self.lua, &stmt);
+        let StmtEffect { events, next} = walk_stmt(ctx, &self.lua, &stmt, &self.dynamic_registry);
         ctx.event_queue.extend(events);
 
         match next {

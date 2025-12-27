@@ -1,0 +1,5 @@
+label start
+show ch1 with fade_in
+
+hide ch1 with dissolve
+enlb

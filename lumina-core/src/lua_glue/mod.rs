@@ -3,13 +3,35 @@ pub mod api;
 
 pub use types::{CommandBuffer, LuaCommand};
 
+use std::path::Path;
 use mlua::{Lua, LuaSerdeExt, Table};
 use log::{error, info};
+use lumina_shared::config;
+use crate::config::SystemConfig;
 
 pub fn init_lua(lua: &Lua) -> CommandBuffer {
     let cmd_buffer = CommandBuffer::new();
 
+    let sys_cfg: SystemConfig = config::get("system");
+    let script_root = Path::new(&sys_cfg.script_path);
+
+    let root_str = script_root.to_string_lossy();
+    let custom_path = format!(
+        "{}/?.lua;{}/?/init.lua",
+        root_str, root_str
+    );
+
     let globals = lua.globals();
+
+    if let Ok(package) = globals.get::<Table>("package") {
+        let current_path: String = package.get("path").unwrap_or_default();
+        let new_path = format!("{};{}", current_path, custom_path);
+        if let Err(e) = package.set("path", new_path.clone()) {
+            error!("Failed to set Lua package.path: {}", e);
+        } else {
+            info!("Lua package.path updated to include: {}", custom_path);
+        }
+    }
 
     if globals.get::<Table>("f").is_err() {
         let f_table = lua.create_table().unwrap();
