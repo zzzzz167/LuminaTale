@@ -31,6 +31,7 @@ pub enum OutputEvent {
         pos_str: Option<String>,
         transition: Option<String>,
         attrs: Vec<String>,
+        defer_visual: bool,
     },
     UpdateSprite { target:String, transition: String },
     HideSprite { target:String, transition: Option<String> },

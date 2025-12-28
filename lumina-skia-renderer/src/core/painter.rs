@@ -24,6 +24,10 @@ impl Painter {
         render_list.sort_by(|a, b| a.z_index.cmp(&b.z_index));
 
         for sprite in render_list {
+            if sprite.pending_data {
+                continue;
+            }
+
             let filename = sprite.full_asset_name();
             let is_bg = sprite.z_index < 0;
 
@@ -37,8 +41,8 @@ impl Painter {
             let (raw_w, raw_h) = ui.measure_image(&filename).unwrap_or((100.0, 100.0));
 
             let mut t = Transform::default();
-            t.x = sprite.pos.x;
-            t.y = sprite.pos.y;
+            t.x = sprite.pos.x + sprite.offset.x;
+            t.y = sprite.pos.y + sprite.offset.y;
             t.rotation = sprite.rotation;
             t.scale_x = sprite.scale;
             t.scale_y = sprite.scale;

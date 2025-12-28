@@ -226,6 +226,7 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt, dynamic_set: &HashSet<St
                         pos_str: final_pos,
                         transition: None,
                         attrs: final_attrs,
+                        defer_visual: true,
                     });
 
                     let code = format!("lumina.tween.run_dynamic('{}', '{}')", trans_name, target);
@@ -239,6 +240,7 @@ pub fn walk_stmt(ctx: &mut Ctx, lua: &Lua, stmt: &Stmt, dynamic_set: &HashSet<St
                         pos_str: final_pos,
                         transition: Some(trans_name),
                         attrs: final_attrs,
+                        defer_visual: false,
                     });
                 }
             }

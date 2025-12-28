@@ -43,18 +43,16 @@ pub fn init_lua(lua: &Lua) -> CommandBuffer {
         globals.set("sf", sf_table).unwrap();
     }
 
-    globals.set("print", lua.create_function(|_, msg: String| {
-        info!("[Lua] {}", msg);
-        Ok(())
-    }).unwrap()).unwrap();
-
+    let rust_log = lua.create_table().unwrap();
     let lumina = lua.create_table().unwrap();
-
+    
+    api::log::register(lua, &rust_log).expect("Failed to register lua log");
     api::system::register(lua, &lumina, &cmd_buffer).expect("Failed to register system API");
     api::audio::register(lua, &lumina, &cmd_buffer).expect("Failed to register audio API");
     api::visual::register(lua, &lumina, &cmd_buffer).expect("Failed to register visual API");
 
-    globals.set("lumina", lumina).expect("Failed to register audio API");
+    globals.set("_rust_log", rust_log).expect("Failed to set rust_log");
+    globals.set("lumina", lumina).expect("Failed to set Lumina engine");
     cmd_buffer
 }
 

@@ -59,8 +59,8 @@ impl InGameScreen {
                 },
 
                 // --- 视觉处理 (委托给 Animator) ---
-                OutputEvent::NewSprite { target, texture, pos_str, transition, attrs } => {
-                    self.animator.handle_new_sprite(target, texture, pos_str.as_deref(), transition, attrs);
+                OutputEvent::NewSprite { target, texture, pos_str, transition, attrs, defer_visual} => {
+                    self.animator.handle_new_sprite(target, texture, pos_str.as_deref(), transition, attrs, defer_visual);
                 }
                 OutputEvent::UpdateSprite { target, transition } => {
                     let (pos_str, attrs) = get_sprite_info(&target);

@@ -18,11 +18,14 @@ pub struct RenderSprite {
     pub attrs: Vec<String>,
 
     pub pos: Vec2,
+    pub offset: Vec2,
     pub scale: f32,
     pub alpha: f32,
     pub rotation: f32,
     pub anchor: Vec2,
     pub z_index: i32,
+
+    pub pending_data: bool,
 }
 
 impl RenderSprite {
@@ -32,11 +35,13 @@ impl RenderSprite {
             texture,
             attrs,
             pos: Vec2::new(0.0, 0.0),
+            offset: Vec2::new(0.0, 0.0),
             scale: 1.0,
             alpha: 1.0,
             rotation: 0.0,
             anchor: Vec2::new(0.5, 1.0),
             z_index: 0,
+            pending_data: false,
         }
     }
     pub fn full_asset_name(&self) -> String {
@@ -52,9 +57,12 @@ impl RenderSprite {
     }
 
     pub fn set_prop(&mut self, key: &str, val: f32) {
+        self.pending_data = false;
         match key {
             "x" => self.pos.x = val,
             "y" => self.pos.y = val,
+            "offset_x" | "ox" => self.offset.x = val,
+            "offset_y" | "oy" => self.offset.y = val,
             "scale" | "scale_x" | "scale_y" => self.scale = val, // 确保这里覆盖了所有 Lua 可能发的 key
             "alpha" | "opacity" => self.alpha = val.clamp(0.0, 1.0),
             "rotation" | "angle" => self.rotation = val,
@@ -68,6 +76,8 @@ impl RenderSprite {
         match key {
             "x" => self.pos.x,
             "y" => self.pos.y,
+            "offset_x" | "ox" => self.offset.x,
+            "offset_y" | "oy" => self.offset.y,
             "alpha" | "opacity" => self.alpha,
             "scale" => self.scale,
             "rotation" | "angle" => self.rotation,
@@ -182,13 +192,17 @@ impl SceneAnimator {
         }
     }
 
-    pub fn handle_new_sprite(&mut self, target: String, texture: String, pos_str: Option<&str>, trans: Option<String>, attrs: Vec<String>) {
+    pub fn handle_new_sprite(&mut self, target: String, texture: String, pos_str: Option<&str>, trans: Option<String>, attrs: Vec<String>, defer_visual: bool) {
         let mut sprite = RenderSprite::new(target.clone(), texture, attrs);
 
         let layout_key = pos_str.unwrap_or("center");
         let layout = self.layouts.get(layout_key).cloned().unwrap_or(LayoutConfig {
             x: 0.5, y: 1.0, anchor_x: 0.5, anchor_y: 1.0
         });
+
+        if defer_visual {
+            sprite.pending_data = true;
+        }
 
         let (w, h) = self.screen_size;
         sprite.pos = Vec2::new(layout.x * w, layout.y * h);
@@ -267,6 +281,12 @@ impl SceneAnimator {
                         props: tween_props,
                         easing: cfg.easing,
                     });
+                } else {
+                    // 转场不存在时，仍然应用位置变化
+                    log::warn!("Transition '{}' not registered, applying position instantly", trans);
+                    if let Some(tp) = target_pos_vec {
+                        sprite.pos = tp;
+                    }
                 }
             } else {
                 // 无转场 (或 Dynamic 拦截): 瞬移

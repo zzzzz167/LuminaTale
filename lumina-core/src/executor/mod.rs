@@ -6,7 +6,7 @@ mod scanner;
 use std::sync::Arc;
 use std::collections::HashSet;
 use log::{error, info, warn};
-use mlua::Lua;
+use mlua::{Lua, LuaOptions, StdLib};
 use viviscript_core::ast::Stmt;
 use frame::Frame;
 use call_stack::CallStack;
@@ -42,7 +42,9 @@ impl std::fmt::Debug for Executor {
 
 impl Executor {
     pub fn new(manager: Arc<ScriptManager>) -> Self{
-        let lua = Lua::new();
+        let lua = unsafe {
+            Lua::unsafe_new_with(StdLib::ALL, LuaOptions::default())
+        };
         let cmd_buffer = lua_glue::init_lua(&lua);
 
         let exe = Self {
@@ -60,7 +62,9 @@ impl Executor {
         if boot_path.exists() {
             info!("Loading boot script: {:?}", boot_path);
             if let Ok(code) = std::fs::read_to_string(&boot_path) {
-                if let Err(e) = exe.lua.load(&code).exec() {
+                if let Err(e) = exe.lua.load(&code)
+                    .set_name("=boot.lua")
+                    .exec() {
                     error!("Failed to load boot.lua: {}", e);
                 }
             }
