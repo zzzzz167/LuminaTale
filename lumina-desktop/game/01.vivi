@@ -6,6 +6,9 @@ label init
     scene bg demo1 with circle_open
     :背景应该像光圈一样打开
 
+    :接下来我们要演示 Shader 百叶窗转场效果
+    scene bg demo with blinds_horiz
+
     :我们再试一次立绘的转场
     show ch2 at center
     -- 这一步是有问题的因为目前演示中的ch2两次的尺寸不匹配

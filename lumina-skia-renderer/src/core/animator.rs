@@ -138,8 +138,33 @@ impl SceneAnimator {
     pub fn handle_register_transition(&mut self, name: String, config: TransitionConfig) {
         self.trans_registry.insert(name, config);
     }
+
     pub fn resize(&mut self, w: f32, h: f32) {
         self.screen_size = (w, h);
+    }
+
+    pub fn is_busy(&self) -> bool {
+        !self.generic_tweens.is_empty()
+    }
+
+    pub fn finish_all_animations(&mut self) {
+        if self.generic_tweens.is_empty() { return; }
+
+        log::debug!("Skipping {} animations", self.generic_tweens.len());
+
+        for tween in &mut self.generic_tweens {
+            tween.elapsed = tween.duration;
+        }
+
+        self.update(0.0);
+
+        for sprite in self.sprites.values_mut() {
+            if sprite.in_transition {
+                sprite.in_transition = false;
+                sprite.trans_progress = 1.0;
+                sprite.old_texture = None;
+            }
+        }
     }
 
     pub fn update(&mut self, dt: f32) {

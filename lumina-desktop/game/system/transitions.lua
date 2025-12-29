@@ -24,4 +24,18 @@ reg("circle_open", {
     vague = 0.2,
 })
 
+reg("blinds_horiz", {
+    duration = 1.0,
+    easing = "linear", -- 百叶窗通常用线性比较自然
+    mask_img = "rules/blinds_horizontal.png",
+    vague = 0.05       -- 边缘稍微锐利一点
+})
+
+reg("blinds_vert", {
+    duration = 1.0,
+    easing = "linear",
+    mask_img = "rules/blinds_vertical.png",
+    vague = 0.05
+})
+
 lumina.log.info("Transitions loaded.")

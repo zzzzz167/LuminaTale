@@ -246,6 +246,11 @@ impl Screen for InGameScreen {
         // ============================
         // 只有当鼠标点击了整个区域，且没有被上面的 Button 拦截时，才触发
         if ui.interact(rect).is_clicked() {
+            if self.animator.is_busy() {
+                self.animator.finish_all_animations();
+                // 这里 return，消耗掉这次点击，不发 Continue
+                return;
+            }
             self.driver.feed(ctx, InputEvent::Continue);
         }
     }
