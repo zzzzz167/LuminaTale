@@ -150,7 +150,7 @@ impl SceneAnimator {
     pub fn finish_all_animations(&mut self) {
         if self.generic_tweens.is_empty() { return; }
 
-        log::debug!("Skipping {} animations", self.generic_tweens.len());
+        // log::debug!("Skipping {} animations", self.generic_tweens.len());
 
         for tween in &mut self.generic_tweens {
             tween.elapsed = tween.duration;

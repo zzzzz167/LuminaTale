@@ -1,6 +1,6 @@
 use super::{Screen, ScreenTransition};
 use crate::ui::UiDrawer;
-use crate::core::{AssetManager, Painter, AudioPlayer};
+use crate::core::{AssetManager, Painter, AudioPlayer, Typewriter};
 use crate::core::SceneAnimator;
 use lumina_core::{Ctx, OutputEvent};
 use lumina_core::event::InputEvent;
@@ -12,6 +12,7 @@ use winit::event_loop::ActiveEventLoop;
 pub struct InGameScreen {
     driver: ExecutorHandle,
     animator: SceneAnimator,
+    typewriter: Typewriter,
     active_choices: Option<(Option<String>, Vec<String>)>,
 }
 
@@ -24,6 +25,7 @@ impl InGameScreen {
             driver,
             animator,
             active_choices: None,
+            typewriter: Typewriter::new(),
         }
     }
 
@@ -150,7 +152,20 @@ impl Screen for InGameScreen {
 
         // 3. 更新动画状态
         self.animator.update(dt);
+        self.typewriter.update(dt);
         self.driver.tick(dt);
+
+        if let Some(last_dialogue) = ctx.dialogue_history.last() {
+            let (prefix, suffix) = if last_dialogue.speaker.is_some() {
+                ("「", "」")
+            } else {
+                ("❀", "❀")
+            };
+            self.typewriter.set_text(prefix, &last_dialogue.text, suffix, " ▼");
+        } else {
+            // 没对话时清空
+            self.typewriter.set_text("", "", "", "");
+        }
 
         ScreenTransition::None
     }
@@ -198,7 +213,7 @@ impl Screen for InGameScreen {
                     .show(ui, name_rect);
             }
 
-            Label::new(&last_dialogue.text)
+            Label::new(&self.typewriter.display_text)
                 .size(26.0)
                 .color(Color::WHITE)
                 .align(Alignment::Start)
@@ -249,6 +264,10 @@ impl Screen for InGameScreen {
             if self.animator.is_busy() {
                 self.animator.finish_all_animations();
                 // 这里 return，消耗掉这次点击，不发 Continue
+                return;
+            }
+            if self.typewriter.is_active() {
+                self.typewriter.skip();
                 return;
             }
             self.driver.feed(ctx, InputEvent::Continue);
