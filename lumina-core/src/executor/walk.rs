@@ -30,11 +30,20 @@ pub enum NextAction {
 fn interpolate(lua: &Lua, text: &str) -> String {
     // 缓存正则表达式，避免重复编译
     static RE: OnceLock<Regex> = OnceLock::new();
-    let re = RE.get_or_init(|| Regex::new(r"\{([^}]+)\}").unwrap());
+    let re = RE.get_or_init(|| Regex::new(r"(\\?)\{([^}]+)\}").unwrap());
 
     re.replace_all(text, |caps: &regex::Captures| {
-        let expr = &caps[1]; // 拿到花括号里面的内容，例如 "f.score"
-        lua_glue::eval_string(lua, expr)
+        let prefix = &caps[1];
+        let mut expr = &caps[2];
+
+        if prefix == "\\" {
+            if expr.ends_with('\\') {
+                expr = &expr[..expr.len() - 1];
+            }
+            format!("{{{}}}", expr)
+        }else {
+            lua_glue::eval_string(lua, expr)
+        }
     }).to_string()
 }
 
