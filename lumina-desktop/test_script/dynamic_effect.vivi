@@ -1,0 +1,13 @@
+label init
+
+scene bg demo
+
+: === 测试 1 ===
+show ch1 at left with jelly_pop
+
+: === 测试 2:位置变化 ===。
+show ch1 at right with shake_crazy
+
+: 测试结束!
+
+enlb

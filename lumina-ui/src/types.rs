@@ -180,3 +180,18 @@ impl Default for Transform {
         }
     }
 }
+
+/// 通用的 Shader 渲染参数
+#[derive(Debug, Clone, Copy)]
+pub struct ShaderSpec<'a> {
+    /// Shader 的唯一标识符 (例如 "transition")
+    pub shader_id: &'a str,
+
+    /// 需要传入 Shader 的浮点参数 (例如 progress, vague)
+    /// 顺序必须和 Shader 代码中的 uniform 定义一致
+    pub uniforms: &'a [f32],
+
+    /// 需要传入 Shader 的图片资源 ID (例如 ["bg_old", "bg_new", "mask"])
+    /// 顺序必须和 Shader 代码中的 uniform shader 定义一致
+    pub images: &'a [&'a str],
+}

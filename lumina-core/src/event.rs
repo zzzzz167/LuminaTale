@@ -13,6 +13,8 @@ pub struct TransitionConfig {
     pub duration: f32,
     pub easing: String,
     pub props: HashMap<String, (Option<f32>, f32)>,
+    pub mask_img: Option<String>,
+    pub vague: Option<f32>,
 }
 
 #[derive(Debug, Clone)]

@@ -44,21 +44,36 @@ pub fn register(lua: &Lua, table: &Table, cb: &CommandBuffer) -> mlua::Result<()
 
     let cb_trans = cb.clone();
     table.set("register_transition", lua.create_function(move |_, (name, tbl): (String, Table)| {
-        let mut props = HashMap::new();
-        if let Ok(p) = tbl.get::<Table>("props") {
-            for pair in p.pairs::<String, Table>(){
-                if let Ok((k, v)) = pair {
-                    props.insert(k, (v.get("from").ok(), v.get("to").unwrap_or(0.0)));
+        let mut props_map = HashMap::new();
+        let duration: f32 = tbl.get("duration").unwrap_or(1.0);
+        let easing: String = tbl.get("easing").unwrap_or("linear".to_string());
+        let mask_img: Option<String> = tbl.get("mask_img").ok();
+        let vague: Option<f32> = tbl.get("vague").ok();
+
+        if let Ok(props_table) = tbl.get::<Table>("props") {
+            for pair in props_table.pairs::<String, mlua::Table>() {
+                if let Ok((key, val_table)) = pair {
+                    // 解析 from (可选)
+                    let from_val: Option<f32> = val_table.get("from").ok();
+                    // 解析 to (必须)
+                    let to_val: f32 = val_table.get("to").unwrap_or(0.0);
+
+                    props_map.insert(key, (from_val, to_val));
                 }
             }
         }
+
+        let config = TransitionConfig {
+            duration,
+            easing,
+            mask_img,
+            vague,
+            props: props_map,
+        };
+
         cb_trans.push(LuaCommand::RegisterTransition {
             name,
-            config: TransitionConfig {
-                duration: tbl.get("duration").unwrap_or(0.5),
-                easing: tbl.get("easing").unwrap_or("linear".into()),
-                props,
-            }
+            config,
         });
        Ok(())
     })?)?;

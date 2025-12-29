@@ -14,7 +14,10 @@ use lumina_ui::{
     Rect
 };
 use skia_safe::textlayout::{FontCollection, TypefaceFontProvider};
-use skia_safe::FontMgr;
+use skia_safe::{FontMgr, RuntimeEffect};
+use std::collections::HashMap;
+use std::fs;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use winit::{
@@ -37,6 +40,7 @@ pub struct SkiaRenderer {
     painter: Painter,
     pub font_collection: FontCollection,
 
+    shaders: HashMap<String, RuntimeEffect>,
     screens: Vec<Box<dyn Screen>>,
     start_time: Instant,
     ctx: Ctx,
@@ -60,6 +64,29 @@ impl SkiaRenderer {
         font_collection.set_asset_font_manager(Some(font_provider.into()));
         font_collection.set_dynamic_font_manager(FontMgr::default());
 
+        let mut shaders = HashMap::new();
+        let shader_dir = Path::new(&sys_cfg.script_path).join("system/core");
+        let trans_shader_path = shader_dir.join("transition.sksl");
+
+        if trans_shader_path.exists() {
+            match fs::read_to_string(&trans_shader_path) {
+                Ok(code) => {
+                    match RuntimeEffect::make_for_shader(&code, None) {
+                        Ok(effect) => {
+                            log::info!("Loaded shader: transition");
+                            shaders.insert("transition".to_string(), effect);
+                        },
+                        Err(err) => {
+                            log::error!("Failed to compile shader {:?}: {}", trans_shader_path, err);
+                        }
+                    }
+                },
+                Err(e) => log::error!("Failed to read shader file: {}", e),
+            }
+        } else {
+            log::warn!("Shader file not found: {:?}", trans_shader_path);
+        }
+
         let ctx = Ctx::default();
 
         let initial_screen: Box<dyn Screen> =
@@ -73,6 +100,7 @@ impl SkiaRenderer {
             painter: Painter::new(),
             font_collection,
 
+            shaders,
             screens: vec![initial_screen],
             start_time: Instant::now(),
             ctx,
@@ -192,6 +220,7 @@ impl ApplicationHandler for SkiaRenderer {
                     let painter_ref = &mut self.painter;
                     let assets_ref = &mut self.assets;
                     let fonts_ref = &self.font_collection;
+                    let shaders_ref = &self.shaders;
 
                     let time = self.start_time.elapsed().as_secs_f32();
 
@@ -227,7 +256,7 @@ impl ApplicationHandler for SkiaRenderer {
 
                         // D. 委托给栈顶 Screen 绘制
                         if let Some(screen) = screens_ref.last_mut() {
-                            let mut ui = UiDrawer::new(canvas, ui_ctx_ref, fonts_ref, assets_ref, time);
+                            let mut ui = UiDrawer::new(canvas, ui_ctx_ref, fonts_ref, assets_ref, time, shaders_ref);
                             let design_rect = Rect::new(0.0, 0.0, DESIGN_WIDTH, DESIGN_HEIGHT);
 
                             screen.draw(

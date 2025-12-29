@@ -17,6 +17,12 @@ pub struct RenderSprite {
     pub texture: String,
     pub attrs: Vec<String>,
 
+    pub old_texture: Option<String>,
+    pub rule_texture: Option<String>,
+    pub trans_progress: f32,
+    pub trans_vague: f32,
+    pub in_transition: bool,
+
     pub pos: Vec2,
     pub offset: Vec2,
     pub scale: f32,
@@ -34,6 +40,11 @@ impl RenderSprite {
             target,
             texture,
             attrs,
+            old_texture: None,
+            rule_texture: None,
+            trans_progress: 1.0,
+            trans_vague: 0.1,
+            in_transition: false,
             pos: Vec2::new(0.0, 0.0),
             offset: Vec2::new(0.0, 0.0),
             scale: 1.0,
@@ -66,6 +77,8 @@ impl RenderSprite {
             "scale" | "scale_x" | "scale_y" => self.scale = val, // 确保这里覆盖了所有 Lua 可能发的 key
             "alpha" | "opacity" => self.alpha = val.clamp(0.0, 1.0),
             "rotation" | "angle" => self.rotation = val,
+            "trans_progress" => self.trans_progress = val.clamp(0.0, 1.0),
+            "trans_vague" => self.trans_vague = val,
             _ => {
                 log::warn!("RenderSprite: Unknown prop '{}'", key);
             }
@@ -238,17 +251,9 @@ impl SceneAnimator {
 
     pub fn handle_update_sprite(&mut self, target: String, trans: String, new_pos: Option<&str>, new_attrs: Vec<String>) {
         if let Some(sprite) = self.sprites.get_mut(&target) {
-            // 更新属性
-            if !new_attrs.is_empty() {
-                sprite.attrs = new_attrs;
-            }
-            // 计算目标位置 (Layout)
             let target_pos_vec = if let Some(pos_key) = new_pos {
                 let layout = self.layouts.get(pos_key).cloned().unwrap_or(LayoutConfig {
-                    x: 0.5,
-                    y: 1.0,
-                    anchor_x: 0.5,
-                    anchor_y: 1.0
+                    x: 0.5, y: 1.0, anchor_x: 0.5, anchor_y: 1.0
                 });
                 let (w, h) = self.screen_size;
                 Some(Vec2::new(layout.x * w, layout.y * h))
@@ -256,18 +261,41 @@ impl SceneAnimator {
                 None
             };
 
+            let mut visual_changed = false;
+            let current_full_name = sprite.full_asset_name();
+
+            if !new_attrs.is_empty() && new_attrs != sprite.attrs {
+                visual_changed = true;
+            }
+
+            let mut applied_transition = false;
+
             if !trans.is_empty() {
                 if let Some(cfg) = self.trans_registry.get(&trans).cloned() {
                     let mut tween_props = HashMap::new();
+                    if visual_changed {
+                        sprite.old_texture = Some(current_full_name);
+                        sprite.rule_texture = cfg.mask_img.clone();
+                        sprite.trans_vague = cfg.vague.unwrap_or(0.1);
+                        sprite.in_transition = true;
+                        sprite.trans_progress = 0.0;
 
-                    // 特殊处理：如果 Update 导致位置变化，自动把 "x"/"y" 加入 Tween
-                    if let Some(tp) = target_pos_vec {
-                        // 除非配置里显式覆盖了 x/y，否则补间过去
-                        if !cfg.props.contains_key("x") { tween_props.insert("x".into(), (sprite.pos.x, tp.x)); }
-                        if !cfg.props.contains_key("y") { tween_props.insert("y".into(), (sprite.pos.y, tp.y)); }
+                        sprite.attrs = new_attrs.clone();
+                        tween_props.insert("trans_progress".to_string(), (0.0, 1.0));
+                    } else {
+                        if !new_attrs.is_empty() { sprite.attrs = new_attrs.clone(); }
                     }
 
-                    // 应用配置里的其他属性 (alpha, scale 等)
+                    if let Some(tp) = target_pos_vec {
+                        // 除非转场配置里显式覆盖了 x/y (比如震动效果)，否则自动补间过去
+                        if !cfg.props.contains_key("x") {
+                            tween_props.insert("x".to_string(), (sprite.pos.x, tp.x));
+                        }
+                        if !cfg.props.contains_key("y") {
+                            tween_props.insert("y".to_string(), (sprite.pos.y, tp.y));
+                        }
+                    }
+
                     for (k, (from_opt, to_val)) in cfg.props {
                         let start = from_opt.unwrap_or(sprite.get_prop(&k));
                         tween_props.insert(k, (start, to_val));
@@ -281,18 +309,24 @@ impl SceneAnimator {
                         props: tween_props,
                         easing: cfg.easing,
                     });
+                    applied_transition = true;
                 } else {
-                    // 转场不存在时，仍然应用位置变化
-                    log::warn!("Transition '{}' not registered, applying position instantly", trans);
-                    if let Some(tp) = target_pos_vec {
-                        sprite.pos = tp;
-                    }
+                    log::warn!("Transition '{}' not found, falling back to instant update.", trans);
                 }
-            } else {
-                // 无转场 (或 Dynamic 拦截): 瞬移
+            }
+
+            if !applied_transition {
+                if !new_attrs.is_empty() {
+                    sprite.attrs = new_attrs;
+                }
+
                 if let Some(tp) = target_pos_vec {
                     sprite.pos = tp;
                 }
+
+                sprite.in_transition = false;
+                sprite.trans_progress = 1.0;
+                sprite.old_texture = None;
             }
         }
     }
@@ -315,18 +349,58 @@ impl SceneAnimator {
         self.generic_tweens.retain(|t| t.target != target);
     }
 
-    pub fn handle_new_scene(&mut self, bg_name: Option<String>, _trans: String) {
-        self.sprites.clear();
-        self.generic_tweens.clear();
+    pub fn handle_new_scene(&mut self, bg_name: Option<String>, trans: String) {
+        self.sprites.retain(|key, _| key == "bg");
+        self.generic_tweens.retain(|t| t.target == "bg");
 
-        if let Some(bg) = bg_name {
-            // 背景通常没有 attrs，传空 Vec
-            let mut bg_sprite = RenderSprite::new("bg".to_string(), bg, vec![]);
+        let new_bg_tex = bg_name.unwrap_or_default();
+
+        if new_bg_tex.is_empty() {
+            self.sprites.remove("bg");
+            return;
+        }
+
+        if self.sprites.contains_key("bg") {
+            if let Some(cfg) = self.trans_registry.get(&trans).cloned() {
+                self.strat_texture_transition("bg".to_string(), new_bg_tex, cfg);
+            } else {
+                if let Some(s) = self.sprites.get_mut("bg") {
+                    s.texture = new_bg_tex;
+                    s.in_transition = false;
+                    s.trans_progress = 1.0;
+                }
+            }
+        } else {
+            let mut bg_sprite = RenderSprite::new("bg".to_string(), new_bg_tex, vec![]);
             bg_sprite.z_index = -100;
             bg_sprite.anchor = Vec2::new(0.0, 0.0);
             self.sprites.insert("bg".to_string(), bg_sprite);
         }
     }
 
+    fn strat_texture_transition(&mut self, target: String, new_tex: String, trans_cfg: TransitionConfig) {
+        if let Some(sprite) = self.sprites.get_mut(&target) {
+            if sprite.texture == new_tex { return; }
+            sprite.old_texture = Some(sprite.texture.clone());
+            sprite.rule_texture = trans_cfg.mask_img.clone();
+
+            sprite.texture = new_tex;
+            sprite.in_transition = true;
+            sprite.trans_progress = 0.0; // 进度归零
+            sprite.trans_vague = trans_cfg.vague.unwrap_or(0.1);
+
+            let mut props = std::collections::HashMap::new();
+            props.insert("trans_progress".to_string(), (0.0, 1.0));
+
+            self.generic_tweens.retain(|t| t.target != target);
+            self.generic_tweens.push(GenericTweener {
+                target,
+                duration: trans_cfg.duration,
+                elapsed: 0.0,
+                props,
+                easing: trans_cfg.easing,
+            });
+        }
+    }
 
 }

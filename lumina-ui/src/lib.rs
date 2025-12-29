@@ -2,7 +2,7 @@ pub mod input;
 pub mod types;
 pub mod widgets;
 
-pub use types::{Rect, Color, Alignment, Style, Background, Border, GradientDirection, Transform};
+pub use types::{Rect, Color, Alignment, Style, Background, Border, GradientDirection, Transform, ShaderSpec};
 use input::Interaction;
 
 pub trait UiRenderer {
@@ -31,4 +31,6 @@ pub trait UiRenderer {
     fn time(&self) -> f32;
 
     fn measure_image(&mut self, image_id: &str) -> Option<(f32, f32)>;
+
+    fn draw_shader(&mut self, rect: Rect, spec: ShaderSpec);
 }

@@ -1,0 +1,27 @@
+uniform shader u_tex_old;
+uniform shader u_tex_new;
+uniform shader u_tex_rule;
+
+uniform float u_progress;
+uniform float u_vague;
+uniform float u_use_rule;
+
+half4 main(float2 coord) {
+    half4 c_old = u_tex_old.eval(coord);
+    half4 c_new = u_tex_new.eval(coord);
+
+    float alpha = 0.0;
+
+    if (u_use_rule > 0.5) {
+        float rule_val = u_tex_rule.eval(coord).r;
+        float start = u_progress * (1.0 + u_vague) - u_vague;
+        float end = start + u_vague;
+
+        alpha = smoothstep(start, end, rule_val);
+        alpha = 1.0 - alpha;
+    } else {
+        alpha = u_progress;
+    }
+
+    return mix(c_old, c_new, alpha);
+}

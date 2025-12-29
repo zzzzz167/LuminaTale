@@ -1,10 +1,9 @@
+use std::collections::HashMap;
 use lumina_ui::input::{Interaction, UiContext};
-use lumina_ui::{Alignment, Color, Rect, Style, UiRenderer, Background, Transform};
+use lumina_ui::{Alignment, Color, Rect, Style, UiRenderer, Background, Transform, ShaderSpec};
 use lumina_ui::types::GradientDirection;
 use skia_safe::textlayout::{FontCollection, ParagraphBuilder, ParagraphStyle, TextAlign, TextStyle};
-use skia_safe::{
-    Canvas, Paint, Point, RRect, Rect as SkRect, gradient_shader::linear, TileMode
-};
+use skia_safe::{Canvas, Paint, Point, RRect, Rect as SkRect, gradient_shader::linear, TileMode, RuntimeEffect, Data, SamplingOptions, Matrix, runtime_effect::ChildPtr, shaders};
 use crate::core::AssetManager;
 
 pub struct UiDrawer<'a> {
@@ -13,6 +12,7 @@ pub struct UiDrawer<'a> {
     fonts: &'a FontCollection,
     pub assets: &'a mut AssetManager,
     pub time: f32,
+    shaders: &'a HashMap<String, RuntimeEffect>,
     transform_stack: Vec<Transform>,
 }
 
@@ -23,8 +23,9 @@ impl<'a> UiDrawer<'a> {
         fonts: &'a FontCollection,
         assets: &'a mut AssetManager,
         time: f32,
+        shaders: &'a HashMap<String, RuntimeEffect>,
     ) -> Self {
-        Self { canvas, input, fonts, assets, time , transform_stack: Vec::new(),}
+        Self { canvas, input, fonts, assets, time , transform_stack: Vec::new(),shaders}
     }
 
     fn to_skia_rect(&self, r: Rect) -> SkRect {
@@ -227,5 +228,58 @@ impl <'a> UiRenderer for UiDrawer<'a> {
 
     fn measure_image(&mut self, image_id: &str) -> Option<(f32, f32)> {
         self.assets.get_image(image_id).map(|img| (img.width() as f32, img.height() as f32))
+    }
+
+    fn draw_shader(&mut self, rect: Rect, spec: ShaderSpec) {
+        let effect = match self.shaders.get(spec.shader_id) {
+            Some(e) => e,
+            None => {
+                log::warn!("Shader not found: {}", spec.shader_id);
+                return;
+            }
+        };
+        let mut uniform_bytes = Vec::new();
+        for &val in spec.uniforms {
+            uniform_bytes.extend_from_slice(&val.to_le_bytes());
+        }
+        let data = Data::new_copy(&uniform_bytes);
+
+        let mut children: Vec<ChildPtr> = Vec::new();
+        for &img_id in spec.images {
+            // 从 AssetManager 获取 Image
+            let fallback_shader = shaders::color(skia_safe::Color::TRANSPARENT);
+            let shader = if let Some(image) = self.assets.get_image(img_id) {
+                let img_w = image.width() as f32;
+                let img_h = image.height() as f32;
+
+                // 防止除以 0
+                if img_w > 0.0 && img_h > 0.0 {
+                    let scale_x = rect.w / img_w;
+                    let scale_y = rect.h / img_h;
+
+                    // 构建矩阵：先缩放，再平移
+                    let mut matrix = Matrix::new_identity();
+                    matrix.set_scale_translate((scale_x, scale_y), (rect.x, rect.y));
+
+                    // 使用带矩阵的 Shader
+                    image.to_shader(None, SamplingOptions::default(), &matrix)
+                        .unwrap_or(fallback_shader)
+                } else {
+                    fallback_shader
+                }
+            } else {
+                fallback_shader
+            };
+            children.push(shader.into());
+        }
+        if let Some(shader) = effect.make_shader(data, &children, None) {
+            let mut paint = Paint::default();
+            paint.set_shader(Some(shader));
+            paint.set_anti_alias(true);
+
+            // 转换坐标
+            let sk_rect = self.to_skia_rect(rect);
+            self.canvas.draw_rect(sk_rect, &paint);
+        }
     }
 }

@@ -1,13 +1,17 @@
 label init
 
-scene bg demo
+    scene bg demo
+    :这是一个普通的背景
+    :接下来我们要演示 Shader 圆形转场效果
+    scene bg demo1 with circle_open
+    :背景应该像光圈一样打开
 
-: === 测试 1 ===
-show ch1 at left with jelly_pop
+    :我们再试一次立绘的转场
+    show ch2 at center
+    -- 这一步是有问题的因为目前演示中的ch2两次的尺寸不匹配
+    :要变化喽
+    show ch2 happy with circle_open
 
-: === 测试 2:位置变化 ===。
-show ch1 at right with shake_crazy
-
-: 测试结束!
+    :测试结束!
 
 enlb

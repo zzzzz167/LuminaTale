@@ -161,7 +161,7 @@ impl Screen for InGameScreen {
         // ============================
         // 调用 Painter 画背景和立绘。
         // Painter 应该只需要知道在这个 rect 范围内画画
-        painter.paint(ui, ctx, &self.animator, (rect.w, rect.h));
+        painter.paint(ui, &self.animator, (rect.w, rect.h));
 
         // ============================
         // 2. 布局 UI (Rect Cut)

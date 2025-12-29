@@ -17,4 +17,11 @@ reg("dissolve", {
     }
 })
 
+reg("circle_open", {
+    duration = 1.5,
+    easing = "ease_in_out",
+    mask_img = "rules/circle.png",
+    vague = 0.2,
+})
+
 lumina.log.info("Transitions loaded.")
