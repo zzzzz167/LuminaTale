@@ -172,7 +172,11 @@ impl SceneAnimator {
 
         for (i, tween) in self.generic_tweens.iter_mut().enumerate() {
             tween.elapsed += dt;
-            let t = (tween.elapsed / tween.duration).clamp(0.0, 1.0);
+            let t = if tween.duration <= 0.0001 {
+                1.0
+            } else {
+                (tween.elapsed / tween.duration).clamp(0.0, 1.0)
+            };
 
             let progress = match tween.easing.as_str() {
                 "linear" => t,

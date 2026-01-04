@@ -15,7 +15,7 @@ show ch2 at right with dissolve
 ch2: "嘿！我是鲍勃。我不应该覆盖掉爱丽丝。"
 
 : [测试 3] 爱丽丝将移动到【中间 (center)】
-show ch1 at center
+show ch1 at center with ease_move
 ch1: "我移动到了中间。"
 
 : [测试 4] 爱丽丝将【淡出 (fade_out)】，鲍勃应该还在

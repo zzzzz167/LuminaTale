@@ -17,6 +17,34 @@ reg("dissolve", {
     }
 })
 
+reg("fade_in", {
+    duration = 0.5,
+    easing = "linear",
+    props = {
+        alpha = { from = 0.0, to = 1.0}
+    }
+})
+
+reg("fade_out", {
+    duration = 0.5,
+    easing = "linear",
+    props = {
+        alpha = { from = 1.0, to = 0.0}
+    }
+})
+
+reg("none", {
+    duration = 0.0,
+    easing = "linear",
+    props = {}
+})
+
+reg("ease_move", {
+    duration = 0.6,
+    easing = "ease_in_out",
+    props = {}
+})
+
 reg("circle_open", {
     duration = 1.5,
     easing = "ease_in_out",

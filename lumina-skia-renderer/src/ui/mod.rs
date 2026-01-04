@@ -248,26 +248,28 @@ impl <'a> UiRenderer for UiDrawer<'a> {
         for &img_id in spec.images {
             // 从 AssetManager 获取 Image
             let fallback_shader = shaders::color(skia_safe::Color::TRANSPARENT);
-            let shader = if let Some(image) = self.assets.get_image(img_id) {
-                let img_w = image.width() as f32;
-                let img_h = image.height() as f32;
+            let shader = if !img_id.is_empty() {
+                if let Some(image) = self.assets.get_image(img_id) {
+                    let img_w = image.width() as f32;
+                    let img_h = image.height() as f32;
 
-                // 防止除以 0
-                if img_w > 0.0 && img_h > 0.0 {
-                    let scale_x = rect.w / img_w;
-                    let scale_y = rect.h / img_h;
+                    if img_w > 0.0 && img_h > 0.0 {
+                        let scale_x = rect.w / img_w;
+                        let scale_y = rect.h / img_h;
 
-                    // 构建矩阵：先缩放，再平移
-                    let mut matrix = Matrix::new_identity();
-                    matrix.set_scale_translate((scale_x, scale_y), (rect.x, rect.y));
+                        let mut matrix = Matrix::new_identity();
+                        matrix.set_scale_translate((scale_x, scale_y), (rect.x, rect.y));
 
-                    // 使用带矩阵的 Shader
-                    image.to_shader(None, SamplingOptions::default(), &matrix)
-                        .unwrap_or(fallback_shader)
+                        image.to_shader(None, SamplingOptions::default(), &matrix)
+                            .unwrap_or(fallback_shader)
+                    } else {
+                        fallback_shader
+                    }
                 } else {
+                    log::warn!("Image not found in index: {}", img_id);
                     fallback_shader
                 }
-            } else {
+            }else {
                 fallback_shader
             };
             children.push(shader.into());

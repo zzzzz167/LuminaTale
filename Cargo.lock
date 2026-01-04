@@ -1256,7 +1256,6 @@ dependencies = [
  "lumina-skia-renderer",
  "serde",
  "toml",
- "viviscript-core",
 ]
 
 [[package]]
