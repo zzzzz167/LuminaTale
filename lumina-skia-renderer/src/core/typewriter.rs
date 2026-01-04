@@ -60,8 +60,6 @@ impl Typewriter {
             // 转换 float 进度为 整数索引
             let visible_count = (self.progress as usize).min(char_count);
 
-            let current_len = self.display_text.chars().count();
-
             self.update_display_text(visible_count);
 
             if visible_count >= char_count {

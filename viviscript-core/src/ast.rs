@@ -100,7 +100,12 @@ pub enum Stmt {
         branches: Vec<(String, Vec<Stmt>)>,
         else_branch: Option<Vec<Stmt>>,
         id: Option<String>,
-    }
+    },
+    ScreenDef {
+        span: Span,
+        id: String,
+        root: Vec<UiStmt>, // Screen 内部是一系列 UI 语句
+    },
 }
 
 /// Identifies the speaker of a dialogue line.
@@ -151,4 +156,34 @@ pub struct Transition {
 pub struct SceneImage {
     pub prefix: String,
     pub attrs: Option<Vec<String>>
+}
+
+/// UI 布局/组件语句
+#[derive(Debug, PartialEq, Clone)]
+pub enum UiStmt {
+    Container {
+        span: Span,
+        kind: ContainerKind,
+        props: Vec<UiProp>,
+        children: Vec<UiStmt>,
+    },
+    Widget {
+        span: Span,
+        kind: WidgetKind,
+        value: Option<String>, // 按钮文字 或 图片路径
+        props: Vec<UiProp>,
+    },
+}
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum ContainerKind { VBox, HBox, ZBox, Frame }
+
+#[derive(Debug, PartialEq, Clone, Copy)]
+pub enum WidgetKind { Button, Image, Text }
+
+/// UI 属性 (key=value)
+#[derive(Debug, PartialEq, Clone)]
+pub struct UiProp {
+    pub key: String,
+    pub val: String, // 为了通用性，暂时全部存为 String，运行时再解析类型
 }

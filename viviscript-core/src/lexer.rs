@@ -48,6 +48,15 @@ pub enum TokKind {
     Reserved(String),
     Flag(String),
     Eof,
+
+    Screen, EnScreen,
+    VBox, EnVBox,
+    HBox, EnHBox,
+    ZBox, EnZBox,
+    Frame, EnFrame,
+    Button,
+    Image,
+    Text,
 }
 
 #[macro_export] 
@@ -250,6 +259,20 @@ impl<'a> Lexer<'a> {
             "enco" => TokKind::EnChoice,
             "enlb" => TokKind::EnLabel,
             "enlua" => TokKind::EnLua,
+
+            "screen" => TokKind::Screen,
+            "enscreen" => TokKind::EnScreen,
+            "vbox" => TokKind::VBox,
+            "envbox" => TokKind::EnVBox,
+            "hbox" => TokKind::HBox,
+            "enhbox" => TokKind::EnHBox,
+            "zbox" => TokKind::ZBox,
+            "enzbox" => TokKind::EnZBox,
+            "frame" => TokKind::Frame,
+            "enframe" => TokKind::EnFrame,
+            "button" => TokKind::Button,
+            "image" => TokKind::Image,
+            "text" => TokKind::Text,
 
             "with" | "at" | "as"=> TokKind::Reserved(s),
             "loop" | "noloop" => TokKind::Flag(s),

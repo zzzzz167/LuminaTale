@@ -78,7 +78,20 @@ impl ScriptManager {
 
         // 1. 解析
         let tokens = Lexer::new(&content).run();
-        let mut ast = Parser::new(&tokens).parse();
+        let parse_result = Parser::new(&tokens).parse();
+
+        let mut ast = match parse_result {
+            Ok(script) => script,
+            Err(errors) => {
+                // 打印错误日志，而不是崩溃
+                log::error!("Syntax Error in {:?}:", path);
+                for err in errors {
+                    log::error!("   Line {}: {}", err.line, err.msg);
+                }
+                anyhow::bail!("Parse failed for {:?}", path);
+            }
+        };
+
         let file_key = path.file_stem().unwrap().to_string_lossy().to_string();
 
         // 2. 预处理 (原本在 Executor 里的逻辑)
